@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>演示操作界面</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#8B5CF6',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .btn-hover {
+                @apply transition-all duration-300 transform hover:scale-105 hover:shadow-lg;
+            }
+            .card-effect {
+                @apply bg-white rounded-xl shadow-md hover:shadow-xl transition-shadow duration-300;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-light to-gray-100 min-h-screen font-sans">
+    <div class="container mx-auto px-4 py-8 max-w-5xl">
+        <!-- 页面标题 -->
+        <header class="text-center mb-12">
+            <h1 class="text-[clamp(2rem,5vw,3rem)] font-bold text-dark mb-2 tracking-tight">
+                演示操作中心
+            </h1>
+        </header>
+
+        <main class="flex flex-col items-center justify-center min-h-[60vh]">
+            <!-- 开始选项 -->
+            {% if show_start %}
+            <div class="text-center p-10 card-effect p-8 max-w-md w-full">
+                <div class="mb-8 text-primary text-6xl">
+                    <i class="fa fa-play-circle-o" aria-hidden="true"></i>
+                </div>
+                <a href="{{ url_for('operations') }}" 
+                   class="inline-block bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-8 rounded-full btn-hover">
+                    进入操作界面
+                </a>
+            </div>
+            
+            <!-- 四个Demo按钮 -->
+            {% else %}
+            <div class="w-full">
+                <!-- 控制机械臂按钮 - 右上角 -->
+                <div class="mb-6 text-right">
+                    <a href="{{ url_for('robotcontrol') }}" 
+                       class="inline-block bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg btn-hover">
+                        <i class="fa fa-android mr-2" aria-hidden="true"></i>控制机械臂
+                    </a>
+                </div>
+                
+                <h2 class="text-2xl font-bold mb-8 text-center text-dark">请选择演示项目</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Demo 1 按钮 -->
+                    <a href="{{ url_for('demo1_page') }}" class="card-effect p-6 flex items-center space-x-4 btn-hover group">
+                        <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+                            <i class="fa fa-hand-grab-o" aria-hidden="true"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold text-dark">力控夹薯片</h3>
+                            <p class="text-sm text-gray-600">智能力传感器控制演示</p>
+                        </div>
+                    </a>
+                    
+                    <!-- Demo 2 按钮 -->
+                    <a href="{{ url_for('demo2') }}" class="card-effect p-6 flex items-center space-x-4 btn-hover group">
+                        <div class="w-14 h-14 rounded-full bg-secondary/10 flex items-center justify-center text-secondary text-2xl group-hover:bg-secondary group-hover:text-white transition-colors duration-300">
+                            <i class="fa fa-rocket" aria-hidden="true"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold text-dark">演示项目 2</h3>
+                        </div>
+                    </a>
+                    
+                    <!-- Demo 3 按钮 -->
+                    <a href="{{ url_for('demo3') }}" class="card-effect p-6 flex items-center space-x-4 btn-hover group">
+                        <div class="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center text-accent text-2xl group-hover:bg-accent group-hover:text-white transition-colors duration-300">
+                            <i class="fa fa-magic" aria-hidden="true"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold text-dark">演示项目 3</h3>
+                        </div>
+                    </a>
+                    
+                    <!-- Demo 4 按钮 -->
+                    <a href="{{ url_for('demo4') }}" class="card-effect p-6 flex items-center space-x-4 btn-hover group">
+                        <div class="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 text-2xl group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
+                            <i class="fa fa-lightbulb-o" aria-hidden="true"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold text-dark">演示项目 4</h3>
+                        </div>
+                    </a>
+                </div>
+                
+                <!-- 返回按钮 -->
+                <div class="mt-10 text-center">
+                    <a href="{{ url_for('index') }}" 
+                       class="inline-block bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-6 rounded-full transition-colors duration-300">
+                        <i class="fa fa-arrow-left mr-2" aria-hidden="true"></i>返回开始页
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+        </main>
+
+        <footer class="mt-16 text-center text-gray-500 text-sm">
+            <p>© 深圳一目智能科技有限公司</p>
+        </footer>
+    </div>
+
+    <!-- 简单的交互脚本 -->
+    <script>
+        // 添加页面加载动画
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.classList.add('opacity-100');
+            document.body.classList.remove('opacity-0');
+        });
+    </script>
+</body>
+</html>

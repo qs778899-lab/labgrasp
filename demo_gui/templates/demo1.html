@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo1 - 力控夹薯片演示</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#8B5CF6',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .btn-hover {
+                @apply transition-all duration-300 transform hover:scale-105 hover:shadow-lg;
+            }
+            .card-effect {
+                @apply bg-white rounded-xl shadow-md hover:shadow-xl transition-shadow duration-300;
+            }
+            .status-running {
+                @apply bg-green-100 text-green-800 border-green-200;
+            }
+            .status-stopped {
+                @apply bg-gray-100 text-gray-800 border-gray-200;
+            }
+            .status-error {
+                @apply bg-red-100 text-red-800 border-red-200;
+            }
+            .status-initializing {
+                @apply bg-yellow-100 text-yellow-800 border-yellow-200;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-light to-gray-100 min-h-screen font-sans">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- 页面标题 -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-dark mb-2">Demo1 - 力控夹薯片演示</h1>
+            <p class="text-gray-600">基于力传感器的智能夹取控制系统</p>
+        </header>
+
+        <!-- 控制面板 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- 控制按钮区域 -->
+            <div class="card-effect p-6">
+                <h2 class="text-xl font-semibold mb-4 text-dark">
+                    <i class="fa fa-cogs mr-2 text-primary"></i>控制面板
+                </h2>
+                
+                <div class="space-y-4">
+                    <button id="startBtn" 
+                            class="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold py-3 px-6 rounded-lg btn-hover disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa fa-play mr-2"></i>启动 Demo1
+                    </button>
+                    
+                    <button id="stopBtn" 
+                            class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-lg btn-hover disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa fa-stop mr-2"></i>停止 Demo1
+                    </button>
+                    
+                    <button id="refreshBtn" 
+                            class="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-6 rounded-lg btn-hover">
+                        <i class="fa fa-refresh mr-2"></i>刷新状态
+                    </button>
+                </div>
+            </div>
+
+            <!-- 状态显示区域 -->
+            <div class="card-effect p-6">
+                <h2 class="text-xl font-semibold mb-4 text-dark">
+                    <i class="fa fa-info-circle mr-2 text-accent"></i>运行状态
+                </h2>
+                
+                <div class="space-y-4">
+                    <div class="border rounded-lg p-4" id="statusCard">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-medium">当前状态:</span>
+                            <span id="statusBadge" class="px-3 py-1 rounded-full text-sm font-medium border status-stopped">
+                                未启动
+                            </span>
+                        </div>
+                        <div class="text-sm text-gray-600" id="statusMessage">
+                            Demo1 尚未启动
+                        </div>
+                    </div>
+                    
+                    <div class="text-xs text-gray-500">
+                        <div>最后更新: <span id="lastUpdate">--</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 第三行：ForceField三个独立图像显示 -->
+        <div class="card-effect p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-dark">
+                <i class="fa fa-hand-paper-o mr-2 text-purple-500"></i>ForceField 触觉力场分析
+            </h2>
+            
+            <div class="space-y-4">
+                <!-- ForceField控制按钮 -->
+                <div class="flex space-x-2">
+                    <button id="startForceFieldBtn" 
+                            class="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-300">
+                        <i class="fa fa-play mr-2"></i>启动 ForceField
+                    </button>
+                    <button id="stopForceFieldBtn" 
+                            class="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-300 disabled:opacity-50">
+                        <i class="fa fa-stop mr-2"></i>停止 ForceField
+                    </button>
+                    <button id="refreshForceFieldBtn" 
+                            class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-300">
+                        <i class="fa fa-refresh mr-2"></i>刷新状态
+                    </button>
+                </div>
+                
+                <!-- ForceField状态显示 -->
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span class="font-medium">ForceField状态:</span>
+                    <span id="forceFieldStatus" class="px-3 py-1 rounded-full text-sm font-medium border status-stopped">
+                        未连接
+                    </span>
+                </div>
+                
+                <!-- 三个独立图像显示区域 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- 触觉图像 -->
+                    <div class="text-center">
+                        <h3 class="text-sm font-medium text-gray-700 mb-2">触觉图像</h3>
+                        <div class="relative bg-gray-100 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
+                            <img id="tactileFrame" 
+                                 alt="触觉图像"
+                                 class="w-full h-full object-cover"
+                                 style="display: none;">
+                            <div id="tactilePlaceholder" 
+                                 class="absolute inset-0 flex items-center justify-center text-gray-500">
+                                <div class="text-center">
+                                    <i class="fa fa-hand-paper-o text-2xl mb-1"></i>
+                                    <p class="text-xs">触觉图像</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 法向力图像 -->
+                    <div class="text-center">
+                        <h3 class="text-sm font-medium text-gray-700 mb-2">法向力</h3>
+                        <div class="relative bg-gray-100 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
+                            <img id="normalFrame" 
+                                 alt="法向力图像"
+                                 class="w-full h-full object-cover"
+                                 style="display: none;">
+                            <div id="normalPlaceholder" 
+                                 class="absolute inset-0 flex items-center justify-center text-gray-500">
+                                <div class="text-center">
+                                    <i class="fa fa-arrow-up text-2xl mb-1"></i>
+                                    <p class="text-xs">法向力</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 剪切力图像 -->
+                    <div class="text-center">
+                        <h3 class="text-sm font-medium text-gray-700 mb-2">剪切力</h3>
+                        <div class="relative bg-gray-100 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
+                            <img id="shearFrame" 
+                                 alt="剪切力图像"
+                                 class="w-full h-full object-cover"
+                                 style="display: none;">
+                            <div id="shearPlaceholder" 
+                                 class="absolute inset-0 flex items-center justify-center text-gray-500">
+                                <div class="text-center">
+                                    <i class="fa fa-arrows text-2xl mb-1"></i>
+                                    <p class="text-xs">剪切力</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 返回按钮 -->
+        <div class="text-center">
+            <a href="{{ url_for('operations') }}" 
+               class="inline-block bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-6 rounded-full transition-colors duration-300">
+                <i class="fa fa-arrow-left mr-2"></i>返回操作界面
+            </a>
+        </div>
+
+        <footer class="mt-12 text-center text-gray-500 text-sm">
+            <p>© 深圳一目智能科技有限公司</p>
+        </footer>
+    </div>
+
+    <!-- JavaScript 控制逻辑 -->
+    <script>
+        let isRunning = false;
+        let statusInterval = null;
+        
+        // ForceField相关变量
+        let forceFieldRunning = false;
+        let forceFieldInterval = null;
+        let forceFieldFrameCount = 0;
+        let forceFieldStartTime = 0;
+
+        // 获取DOM元素
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const statusBadge = document.getElementById('statusBadge');
+        const statusMessage = document.getElementById('statusMessage');
+        const lastUpdate = document.getElementById('lastUpdate');
+
+        
+        // ForceField相关元素
+        const startForceFieldBtn = document.getElementById('startForceFieldBtn');
+        const stopForceFieldBtn = document.getElementById('stopForceFieldBtn');
+        const refreshForceFieldBtn = document.getElementById('refreshForceFieldBtn');
+        const forceFieldStatus = document.getElementById('forceFieldStatus');
+        const tactileFrame = document.getElementById('tactileFrame');
+        const normalFrame = document.getElementById('normalFrame');
+        const shearFrame = document.getElementById('shearFrame');
+        const tactilePlaceholder = document.getElementById('tactilePlaceholder');
+        const normalPlaceholder = document.getElementById('normalPlaceholder');
+        const shearPlaceholder = document.getElementById('shearPlaceholder');
+
+        // 获取Demo1状态
+        function fetchStatus() {
+            fetch('/api/demo1/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatus(data);
+                })
+                .catch(error => {
+                    console.error('获取状态失败:', error);
+                    statusMessage.textContent = '状态获取失败: ' + error.message;
+                    statusBadge.textContent = '连接错误';
+                    statusBadge.className = 'px-3 py-1 rounded-full text-sm font-medium border status-error';
+                });
+        }
+
+        // 更新状态显示
+        function updateStatus(data) {
+            const now = new Date().toLocaleTimeString();
+            lastUpdate.textContent = now;
+            
+            statusMessage.textContent = data.message;
+            statusBadge.textContent = data.status;
+            
+            // 更新状态样式
+            statusBadge.className = 'px-3 py-1 rounded-full text-sm font-medium border ';
+            if (data.running) {
+                statusBadge.className += 'status-running';
+            } else if (data.status === '错误' || data.status === '初始化失败') {
+                statusBadge.className += 'status-error';
+            } else if (data.status.includes('中')) {
+                statusBadge.className += 'status-initializing';
+            } else {
+                statusBadge.className += 'status-stopped';
+            }
+            
+            // 关键修复：Demo不在运行时，重置所有状态
+            if (!data.running) {
+                isRunning = false;
+                startBtn.disabled = false;
+                startBtn.innerHTML = '<i class="fa fa-play mr-2"></i>启动 Demo1';
+                stopBtn.disabled = true;
+                
+                // 停止轮询
+                if (statusInterval) {
+                    clearInterval(statusInterval);
+                    statusInterval = null;
+                }
+            } else {
+                // Demo正在运行
+                isRunning = true;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            }
+        }
+
+        // 重置启动按钮状态
+        function resetStartButton() {
+            startBtn.disabled = false;
+            startBtn.innerHTML = '<i class="fa fa-play mr-2"></i>启动 Demo1';
+        }
+
+        // 启动Demo1
+        function startDemo1() {
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>启动中...';
+            
+            fetch('/api/demo1/start', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // 启动状态轮询
+                        if (statusInterval) clearInterval(statusInterval);
+                        statusInterval = setInterval(fetchStatus, 1000);
+                        fetchStatus(); // 立即获取一次状态
+                        
+                    } else {
+                        alert('启动失败: ' + data.message);
+                        resetStartButton();
+                    }
+                })
+                .catch(error => {
+                    console.error('启动失败:', error);
+                    alert('启动失败: ' + error.message);
+                    resetStartButton();
+                });
+        }
+
+        // 停止Demo1
+        function stopDemo1() {
+            stopBtn.disabled = true;
+            stopBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>停止中...';
+            
+            fetch('/api/demo1/stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        fetchStatus();
+                    } else {
+                        alert('停止失败: ' + data.message);
+                    }
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = '<i class="fa fa-stop mr-2"></i>停止 Demo1';
+                })
+                .catch(error => {
+                    console.error('停止失败:', error);
+                    alert('停止失败: ' + error.message);
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = '<i class="fa fa-stop mr-2"></i>停止 Demo1';
+                });
+        }
+
+
+        // ForceField相关函数
+        function fetchForceFieldStatus() {
+            fetch('/api/forcefield/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateForceFieldStatus(data);
+                })
+                .catch(error => {
+                    console.error('获取ForceField状态失败:', error);
+                    forceFieldStatus.textContent = '连接错误';
+                    forceFieldStatus.className = 'px-3 py-1 rounded-full text-sm font-medium border status-error';
+                });
+        }
+
+        function updateForceFieldStatus(data) {
+            if (data.success) {
+                const status = data.status;
+                forceFieldStatus.textContent = status.forcefield_available ? '已连接' : '未连接';
+                
+                if (status.forcefield_available) {
+                    forceFieldStatus.className = 'px-3 py-1 rounded-full text-sm font-medium border status-running';
+                } else {
+                    forceFieldStatus.className = 'px-3 py-1 rounded-full text-sm font-medium border status-stopped';
+                }
+            } else {
+                forceFieldStatus.textContent = '连接错误';
+                forceFieldStatus.className = 'px-3 py-1 rounded-full text-sm font-medium border status-error';
+            }
+        }
+
+        function startForceField() {
+            startForceFieldBtn.disabled = true;
+            startForceFieldBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>启动中...';
+            
+            fetch('/api/forcefield/start', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        forceFieldRunning = true;
+                        startForceFieldBtn.disabled = true;
+                        stopForceFieldBtn.disabled = false;
+                        startForceFieldBtn.innerHTML = '<i class="fa fa-play mr-2"></i>启动 ForceField';
+                        
+                        // 启动ForceField图像更新
+                        if (forceFieldInterval) clearInterval(forceFieldInterval);
+                        forceFieldFrameCount = 0;
+                        forceFieldStartTime = Date.now();
+                        forceFieldInterval = setInterval(updateForceFieldFrames, 100);
+                        updateForceFieldFrames(); // 立即更新一次
+                        
+                        // 启动状态轮询
+                        setInterval(fetchForceFieldStatus, 2000);
+                        fetchForceFieldStatus();
+                    } else {
+                        alert('ForceField启动失败: ' + data.message);
+                        startForceFieldBtn.disabled = false;
+                        startForceFieldBtn.innerHTML = '<i class="fa fa-play mr-2"></i>启动 ForceField';
+                    }
+                })
+                .catch(error => {
+                    console.error('ForceField启动失败:', error);
+                    alert('ForceField启动失败: ' + error.message);
+                    startForceFieldBtn.disabled = false;
+                    startForceFieldBtn.innerHTML = '<i class="fa fa-play mr-2"></i>启动 ForceField';
+                });
+        }
+
+        function stopForceField() {
+            stopForceFieldBtn.disabled = true;
+            stopForceFieldBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>停止中...';
+            
+            fetch('/api/forcefield/stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    forceFieldRunning = false;
+                    startForceFieldBtn.disabled = false;
+                    stopForceFieldBtn.disabled = true;
+                    stopForceFieldBtn.innerHTML = '<i class="fa fa-stop mr-2"></i>停止 ForceField';
+                    
+                    // 停止图像更新
+                    if (forceFieldInterval) {
+                        clearInterval(forceFieldInterval);
+                        forceFieldInterval = null;
+                    }
+                    
+                    // 隐藏图像
+                    hideForceFieldFrames();
+                    
+                    fetchForceFieldStatus();
+                })
+                .catch(error => {
+                    console.error('ForceField停止失败:', error);
+                    alert('ForceField停止失败: ' + error.message);
+                    stopForceFieldBtn.disabled = false;
+                    stopForceFieldBtn.innerHTML = '<i class="fa fa-stop mr-2"></i>停止 ForceField';
+                });
+        }
+
+        function updateForceFieldFrames() {
+            fetch('/api/forcefield/three_frames')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.frames) {
+                        forceFieldFrameCount++;
+                        const now = Date.now();
+                        const elapsed = (now - forceFieldStartTime) / 1000;
+                        const fps = elapsed > 0 ? (forceFieldFrameCount / elapsed).toFixed(1) : '0';
+                        
+                        // 更新触觉图像
+                        if (data.frames.tactile) {
+                            tactileFrame.src = 'data:image/jpeg;base64,' + data.frames.tactile;
+                            tactileFrame.style.display = 'block';
+                            tactilePlaceholder.style.display = 'none';
+                        }
+                        
+                        // 更新法向力图像
+                        if (data.frames.normal) {
+                            normalFrame.src = 'data:image/jpeg;base64,' + data.frames.normal;
+                            normalFrame.style.display = 'block';
+                            normalPlaceholder.style.display = 'none';
+                        }
+                        
+                        // 更新剪切力图像
+                        if (data.frames.shear) {
+                            shearFrame.src = 'data:image/jpeg;base64,' + data.frames.shear;
+                            shearFrame.style.display = 'block';
+                            shearPlaceholder.style.display = 'none';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('ForceField图像更新失败:', error);
+                });
+        }
+
+        function hideForceFieldFrames() {
+            tactileFrame.style.display = 'none';
+            normalFrame.style.display = 'none';
+            shearFrame.style.display = 'none';
+            tactilePlaceholder.style.display = 'flex';
+            normalPlaceholder.style.display = 'flex';
+            shearPlaceholder.style.display = 'flex';
+        }
+
+        // 事件监听
+        startBtn.addEventListener('click', startDemo1);
+        stopBtn.addEventListener('click', stopDemo1);
+        refreshBtn.addEventListener('click', fetchStatus);
+        
+        // ForceField事件监听
+        startForceFieldBtn.addEventListener('click', startForceField);
+        stopForceFieldBtn.addEventListener('click', stopForceField);
+        refreshForceFieldBtn.addEventListener('click', fetchForceFieldStatus);
+
+        // 页面加载时获取初始状态
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStatus();
+            fetchForceFieldStatus();
+            
+            // 如果Demo正在运行，启动轮询
+            setTimeout(() => {
+                if (isRunning) {
+                    statusInterval = setInterval(fetchStatus, 1000);
+                }
+            }, 100);
+        });
+
+        // 页面卸载时清理定时器
+        window.addEventListener('beforeunload', () => {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+            }
+            if (forceFieldInterval) {
+                clearInterval(forceFieldInterval);
+            }
+        });
+    </script>
+</body>
+</html>

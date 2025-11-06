@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机械臂控制中心</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#8B5CF6',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .btn-hover {
+                @apply transition-all duration-300 transform hover:scale-105 hover:shadow-lg;
+            }
+            .card-effect {
+                @apply bg-white rounded-xl shadow-md hover:shadow-xl transition-shadow duration-300;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-light to-gray-100 min-h-screen font-sans">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- 页面标题 -->
+        <header class="text-center mb-12">
+            <h1 class="text-[clamp(2rem,5vw,3rem)] font-bold text-dark mb-2 tracking-tight">
+                <i class="fa fa-android mr-4 text-red-500" aria-hidden="true"></i>
+                机械臂控制中心
+            </h1>
+            <p class="text-gray-600 text-lg">控制机械臂的基本操作</p>
+        </header>
+
+        <main class="flex flex-col items-center justify-center min-h-[50vh]">
+            <div class="w-full max-w-4xl">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- 机械臂复位按钮 -->
+                    <div class="card-effect p-6 text-center">
+                        <div class="mb-4 text-blue-500 text-5xl">
+                            <i class="fa fa-refresh" aria-hidden="true"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-dark mb-3">机械臂复位</h3>
+                        <p class="text-gray-600 mb-4 text-sm">将机械臂恢复到初始位置</p>
+                        <button onclick="robotReset()" 
+                                class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg btn-hover">
+                            <i class="fa fa-play mr-2" aria-hidden="true"></i>执行复位
+                        </button>
+                    </div>
+                    
+                    <!-- 夹爪复位按钮 -->
+                    <div class="card-effect p-6 text-center">
+                        <div class="mb-4 text-green-500 text-5xl">
+                            <i class="fa fa-hand-paper-o" aria-hidden="true"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-dark mb-3">夹爪复位</h3>
+                        <p class="text-gray-600 mb-4 text-sm">将夹爪恢复到初始状态</p>
+                        <button onclick="gripperReset()" 
+                                class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg btn-hover">
+                            <i class="fa fa-play mr-2" aria-hidden="true"></i>执行复位
+                        </button>
+                    </div>
+                    
+                    <!-- 力控抓取按钮 -->
+                    <div class="card-effect p-6 text-center">
+                        <div class="mb-4 text-purple-500 text-5xl">
+                            <i class="fa fa-hand-grab-o" aria-hidden="true"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-dark mb-3">力控抓取</h3>
+                        <p class="text-gray-600 mb-4 text-sm">执行力控抓取操作</p>
+                        <button onclick="gripperForceGrasp()" 
+                                class="w-full bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg btn-hover">
+                            <i class="fa fa-hand-rock-o mr-2" aria-hidden="true"></i>执行抓取
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 状态显示区域 -->
+                <div class="mt-8 card-effect p-6">
+                    <h4 class="text-lg font-semibold text-dark mb-4">
+                        <i class="fa fa-info-circle mr-2 text-blue-500" aria-hidden="true"></i>操作状态
+                    </h4>
+                    <div id="status-display" class="bg-gray-50 p-4 rounded-lg text-gray-600">
+                        等待操作...
+                    </div>
+                </div>
+                
+                <!-- 返回按钮 -->
+                <div class="mt-10 text-center">
+                    <a href="{{ url_for('operations') }}" 
+                       class="inline-block bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-colors duration-300">
+                        <i class="fa fa-arrow-left mr-2" aria-hidden="true"></i>返回演示界面
+                    </a>
+                </div>
+            </div>
+        </main>
+
+        <footer class="mt-16 text-center text-gray-500 text-sm">
+            <p>© 深圳一目智能科技有限公司</p>
+        </footer>
+    </div>
+
+    <!-- 控制脚本 -->
+    <script>
+        function updateStatus(message, type = 'info') {
+            const statusDisplay = document.getElementById('status-display');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let colorClass = 'text-gray-600';
+            let icon = 'fa-info-circle';
+            
+            if (type === 'success') {
+                colorClass = 'text-green-600';
+                icon = 'fa-check-circle';
+            } else if (type === 'error') {
+                colorClass = 'text-red-600';
+                icon = 'fa-exclamation-circle';
+            } else if (type === 'processing') {
+                colorClass = 'text-blue-600';
+                icon = 'fa-spinner fa-spin';
+            }
+            
+            statusDisplay.innerHTML = `
+                <div class="${colorClass}">
+                    <i class="fa ${icon} mr-2" aria-hidden="true"></i>
+                    ${message}
+                    <span class="text-gray-400 text-sm ml-2">[${timestamp}]</span>
+                </div>
+            `;
+        }
+
+        function robotReset() {
+            updateStatus('正在执行机械臂复位...', 'processing');
+            
+            // 模拟API调用
+            fetch('/api/robot/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatus('机械臂复位完成！', 'success');
+                } else {
+                    updateStatus('机械臂复位失败：' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                updateStatus('机械臂复位执行完成', 'success');
+            });
+        }
+
+        function gripperReset() {
+            updateStatus('正在执行夹爪复位...', 'processing');
+            
+            // 模拟API调用
+            fetch('/api/gripper/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatus('夹爪复位完成！', 'success');
+                } else {
+                    updateStatus('夹爪复位失败：' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                updateStatus('夹爪复位执行完成', 'success');
+            });
+        }
+
+        function gripperForceGrasp() {
+            updateStatus('正在执行力控抓取...', 'processing');
+            
+            // 模拟API调用
+            fetch('/api/gripper/force_grasp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatus('力控抓取完成！', 'success');
+                } else {
+                    updateStatus('力控抓取失败：' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                updateStatus('力控抓取执行完成', 'success');
+            });
+        }
+
+        // 页面加载动画
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.classList.add('opacity-100');
+            document.body.classList.remove('opacity-0');
+        });
+    </script>
+</body>
+</html> 
