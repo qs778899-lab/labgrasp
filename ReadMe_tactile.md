@@ -78,8 +78,10 @@ min_area=2
 10. 常用调试文件:
 
 test_pixel_change_monitor.py: 测试通过前后帧（视触觉退图像）像素变化是否可以判断玻璃棒触碰桌面。
+test_force.py:  测试通过力控感知变化是否可以灵敏判断玻璃棒触碰桌面。
 test_ros_subscriber.py: 测试能否正常接收realtime_object_tracking.py发送的topics。
-test_
+
+
 
 
 
