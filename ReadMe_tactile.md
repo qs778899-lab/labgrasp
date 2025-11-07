@@ -50,7 +50,8 @@ rostopic info tracking_data
 
 
 7. 执行抓取的代码文件
-主文件：glassbar_grasp_main.py
+主文件1：glassbar_grasp_main.py
+主文件2：glassbar_grasp_main_force.py
 
 
 
@@ -62,12 +63,16 @@ lines = cv2.HoughLines(edges, 1, np.pi/180, threshold= 65)
 
 
 
-9. 通过像素变化判断玻璃棒是否触碰桌面：
+9. 通过像素变化判断玻璃棒是否触碰桌面（主文件1）：
 影响判断的参数：
-gripper_close_pos=21, 
+gripper_close_pos=20, (21可能会检测不到orientation of glassbar)
 change_threshold=0.06, 
 pixel_threshold=2, 
 min_area=2
+
+
+9. 通过力控感知判断玻璃棒是否触碰桌面（主文件2）：
+
 
 
 111.

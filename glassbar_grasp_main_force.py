@@ -25,7 +25,6 @@ import queue
 from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
 from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
-from camera_reader import CameraReader
 import rospy
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import Image
@@ -413,7 +412,7 @@ if __name__ == "__main__":
         T_tcp_ee_z= -0.16, 
         T_safe_distance= 0.00, #可灵活调整
         z_safe_distance=z_safe_distance,
-        gripper_close_pos=21,
+        gripper_close_pos=20,
         verbose=True
     )
     
@@ -489,47 +488,24 @@ if __name__ == "__main__":
     pose_after_adjust = dobot.get_pose()
     print(f"检查姿态调整是否完成: Rx={pose_after_adjust[3]:.2f}° (目标: {pose_target[3]:.2f}°)")
 
-
-
     #垂直桌面向下移动玻璃棒，检测是否触碰到桌面
     print("\n开始监测玻璃棒与桌面接触...")
 
-    gray_debug_dir = os.path.join(save_dir, "gray_images_debug")
-    os.makedirs(gray_debug_dir, exist_ok=True)
-    print(f"灰度图将保存到: {gray_debug_dir}")
-
-    change_detector = CameraReader(init_camera=False)
-    sample_interval = 0.1  # 秒
-    move_step = 3          # mm
+    move_step = 1          # mm
     max_steps = 700
-    change_threshold = 0.06 #0.06% 变化灵敏度 
+    sample_interval = 0.03  # 秒
+    max_force_samples = 30
+    force_threshold = 1.0  # N，触碰判定阈值
+    consecutive_hits_required = 2
 
-    rate = rospy.Rate(1.0 / sample_interval)
-    rate.sleep()
-    # rospy.sleep(sample_interval)
-    frame_before, ts_before = ros_subscriber.get_latest_raw_image()
-
-    # if frame_before is None:
-    #     print("无法获取图像，跳过变化检测")
-    #     print("玻璃棒下降检测完成\n")
-    #     return
-
-    print("已获取初始图像")
     pose_current = dobot.get_pose()
-    last_timestamp = ts_before
+    contact_detected = False
+    contact_force = 0.0
 
     for step in range(max_steps):
-        wait = rospy.Rate(33)  
+        wait = rospy.Rate(33)
         wait.sleep()
-        # 动作前帧
-        frame_before, ts_before = ros_subscriber.get_latest_raw_image()
-        if frame_before is None:
-            print(f"  步骤 {step+1}: 等待动作前图像...")
-            rospy.sleep(sample_interval)
-            continue
-        last_timestamp = ts_before
 
-        # 向下移动一小步
         pose_current[2] -= move_step
         dobot.move_to_pose(
             pose_current[0], pose_current[1], pose_current[2],
@@ -537,48 +513,47 @@ if __name__ == "__main__":
             speed=5, acceleration=1
         )
 
-        # 等待并抓取动作后的新帧
-        frame_after = None
-        #连续高频采样检测
-        for _ in range(20): #0.1*20 = 2s  
-            rate.sleep()
-            candidate, ts_candidate = ros_subscriber.get_latest_raw_image()
-            # if candidate is not None and ts_candidate != last_timestamp:  #?? 
-            if candidate is not None:
-                frame_after = candidate
-                last_timestamp = ts_candidate
+        consecutive_hits = 0
+        for _ in range(max_force_samples):
+            short_wait = rospy.Rate(1/sample_interval)
+            short_wait.sleep()
+            force_values = dobot.get_force()
+            if not force_values:
+                continue
 
-                has_change = change_detector.has_significant_change(
-                    frame_before, frame_after,
-                    change_threshold=change_threshold,
-                    pixel_threshold=2,
-                    min_area=2,
-                    save_dir=gray_debug_dir,
-                    step_num=step
-                )
-
-                if has_change:
-                    break
+            print("force_values: ", force_values)
             
-                # break
 
-        if frame_after is None:
-            print(f"  步骤 {step+1}: 未收到新图像，继续等待...")
-            continue
+            max_force_component = max(abs(value) for value in force_values)
+            if max_force_component >= force_threshold:
+                consecutive_hits += 1
+                contact_force = max_force_component
+                if consecutive_hits >= consecutive_hits_required:
+                    contact_detected = True
+                    break
+            else:
+                consecutive_hits = 0
 
-
-        if has_change:
-            print(f"检测到显著变化！玻璃棒可能已接触桌面 (步数: {step+1}, 下降: {(step+1)*move_step}mm)")
+        if contact_detected:
+            print(
+                f"检测到受力变化！玻璃棒可能已接触桌面 (步数: {step+1}, 下降: {(step+1)*move_step}mm, Fz≈{contact_force:.2f}N)"
+            )
             break
 
         print(f"  步骤 {step+1}/{max_steps}: 未检测到接触，继续下降...")
     else:
-        print("达到垂直向下最大移动距离，未检测到明显变化")
+        print("达到垂直向下最大移动距离，未检测到明显受力变化")
 
     print("玻璃棒下降检测完成\n")
 
         
     # 可选：返回home位置（根据需要取消注释）
     # dobot.move_to_pose(435.4503, 281.809, 348.9125, -179.789, -0.8424, 14.4524, speed=9)
+
+    #移动到目标位置
+    pose_now = dobot.get_pose()
+    x_target, y_target, z_target= 450, -150, 12
+    rx_target, ry_target, rz_target= pose_now[3], pose_now[4], pose_now[5]
+    # dobot.move_to_pose(x_target, y_target, z_target, rx_target, ry_target, rz_target, speed=9)
 
 
