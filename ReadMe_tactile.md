@@ -75,8 +75,15 @@ min_area=2
 
 
 
-111.
-最后结束时，记得拔下传感器的usb接口（接在电脑主机上）
+10. 常用调试文件:
+
+test_pixel_change_monitor.py: 测试通过前后帧（视触觉退图像）像素变化是否可以判断玻璃棒触碰桌面。
+test_ros_subscriber.py: 测试能否正常接收realtime_object_tracking.py发送的topics。
+test_
+
+
+
+11. 最后结束时，记得拔下传感器的usb接口（接在电脑主机上）
 
 
 
