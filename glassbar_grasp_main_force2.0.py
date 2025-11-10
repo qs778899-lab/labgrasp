@@ -24,12 +24,7 @@ from scipy.spatial.transform import Rotation as R
 import queue
 from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
-from calculate_grasp_pose_from_object_pose import (
-    execute_grasp_from_object_pose, 
-    detect_dent_orientation,
-    adjust_to_vertical_and_lift,
-    descend_with_force_feedback
-)
+from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 import rospy
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import Image
@@ -260,7 +255,7 @@ if __name__ == "__main__":
         T_tcp_ee_z= -0.16, 
         T_safe_distance= 0.00, #可灵活调整
         z_safe_distance=z_safe_distance,
-        gripper_close_pos=15,
+        gripper_close_pos=19,
         verbose=True
     )
     
@@ -316,25 +311,76 @@ if __name__ == "__main__":
 
 
 #-----------开始调整玻璃棒姿态-------------------------------------------------------
-    # 调用封装函数：调整姿态至垂直并抬升
-    adjust_result = adjust_to_vertical_and_lift(
-        dobot=dobot,
-        avg_angle=avg_angle, # 检测到的玻璃棒当前倾斜角度（度）
-        grasp_tilt_angle=grasp_tilt_angle,
-        verbose=True
-    )
 
-    wait_rate = rospy.Rate(1.0 / 10.0)  
+    print("开始调整玻璃棒姿态至垂直桌面向下")
+    pose_now = dobot.get_pose()
+    delta_ee = avg_angle - grasp_tilt_angle
+    #需要让tcp朝外旋转； grasp_tilt_angle为正值时，tcp会朝外旋转。
+    pose_target = [pose_now[0]+15, pose_now[1], pose_now[2], pose_now[3]+delta_ee, pose_now[4], pose_now[5]]
+    dobot.move_to_pose(pose_target[0], pose_target[1], pose_target[2], pose_target[3], pose_target[4], pose_target[5], speed=12, acceleration=1)
+    
+
+    wait_rate = rospy.Rate(1.0 / 12.0)  
     wait_rate.sleep()
     
-    # 调用封装函数：垂直下降并检测力反馈
-    descend_result = descend_with_force_feedback(
-        dobot=dobot,
-        move_step=1,
-        max_steps=700,
-        force_threshold=1.5,
-        verbose=True
-    )
+    # 验证是否到达目标位置
+    pose_after_adjust = dobot.get_pose()
+    print(f"检查姿态调整是否完成: Rx={pose_after_adjust[3]:.2f}° (目标: {pose_target[3]:.2f}°)")
+
+    #垂直桌面向下移动玻璃棒，检测是否触碰到桌面
+    print("\n开始监测玻璃棒与桌面接触...")
+
+    move_step = 1          # mm
+    max_steps = 700
+    sample_interval = 0.03  # 秒
+    max_force_samples = 30
+    force_threshold = 1.0  # N，触碰判定阈值
+    consecutive_hits_required = 2
+
+    pose_current = dobot.get_pose()
+    contact_detected = False
+    contact_force = 0.0
+
+    for step in range(max_steps):
+        wait = rospy.Rate(33)
+        wait.sleep()
+
+        pose_current[2] -= move_step
+        dobot.move_to_pose(
+            pose_current[0], pose_current[1], pose_current[2],
+            pose_current[3], pose_current[4], pose_current[5],
+            speed=5, acceleration=1
+        )
+
+        consecutive_hits = 0
+        for _ in range(max_force_samples):
+            short_wait = rospy.Rate(1/sample_interval)
+            short_wait.sleep()
+            force_values = dobot.get_force()
+            if not force_values:
+                continue
+            print("force_values: ", force_values)
+            max_force_component = max(abs(value) for value in force_values)
+            if max_force_component >= force_threshold:
+                consecutive_hits += 1
+                contact_force = max_force_component
+                if consecutive_hits >= consecutive_hits_required:
+                    contact_detected = True
+                    break
+            else:
+                consecutive_hits = 0
+
+        if contact_detected:
+            print(
+                f"检测到受力变化！玻璃棒可能已接触桌面 (步数: {step+1}, 下降: {(step+1)*move_step}mm, Fz≈{contact_force:.2f}N)"
+            )
+            break
+
+        print(f"  步骤 {step+1}/{max_steps}: 未检测到接触，继续下降...")
+    else:
+        print("达到垂直向下最大移动距离，未检测到明显受力变化")
+
+        
 
     #移动到目标位置
     pose_now = dobot.get_pose()

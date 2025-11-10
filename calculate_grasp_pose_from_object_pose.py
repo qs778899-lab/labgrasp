@@ -978,3 +978,255 @@ def detect_dent_orientation(img, save_dir=None):
         print("❌ 未检测到直线")
     
     return angles, avg_angle
+
+
+def adjust_to_vertical_and_lift(
+    dobot,
+    avg_angle,
+    grasp_tilt_angle,
+    x_adjustment=115,
+    z_adjustment=180,
+    adjust_speed=12,
+    wait_time=3,
+    verbose=True
+):
+    """
+    调整物体姿态至垂直并抬升到安全高度
+    
+    Args:
+        dobot: Dobot机械臂对象
+        avg_angle: 检测到的物体当前角度（度）
+        grasp_tilt_angle: 抓取时的倾斜角度（度）
+        x_adjustment: 抬升后x方向调整量 (mm)，默认115
+        z_adjustment: 抬升后z方向调整量 (mm)，默认180
+        adjust_speed: 移动速度，默认12
+        wait_time: 等待时间（秒），如果为None则根据速度自动计算
+        verbose: 是否打印详细信息
+    
+    Returns:
+        dict: {
+            'success': bool,           # 是否成功
+            'initial_pose': list,      # 调整前的位姿
+            'target_pose': list,       # 目标位姿
+            'final_pose': list,        # 调整后的实际位姿
+            'delta_angle': float,      # 角度调整量
+            'x_adjustment': float,     # x方向调整量
+            'z_adjustment': float      # z方向调整量
+        }
+    """
+    if verbose:
+        print("开始调整物体姿态至垂直桌面向下")
+     
+    
+    # 获取当前位姿
+    pose_now = dobot.get_pose()
+    if verbose:
+        print(f"当前位姿: x={pose_now[0]:.2f}, y={pose_now[1]:.2f}, z={pose_now[2]:.2f}")
+        print(f"当前姿态: rx={pose_now[3]:.2f}°, ry={pose_now[4]:.2f}°, rz={pose_now[5]:.2f}°")
+    
+    # 计算需要调整的角度
+    delta_ee = avg_angle - grasp_tilt_angle
+    if verbose:
+        print(f"\n角度调整计算:")
+        print(f"  检测角度 (avg_angle): {avg_angle:.2f}°")
+        print(f"  抓取倾角 (grasp_tilt_angle): {grasp_tilt_angle:.2f}°")
+        print(f"  需要调整 (delta_ee): {delta_ee:.2f}°")
+    
+    # 构造目标位姿
+    # 需要让tcp朝外旋转；grasp_tilt_angle为正值时，tcp会朝外旋转
+    pose_target = [
+        pose_now[0] + x_adjustment,
+        pose_now[1],
+        pose_now[2] + z_adjustment,
+        pose_now[3] + delta_ee,
+        pose_now[4],
+        pose_now[5]
+    ]
+    
+    if verbose:
+        print(f"\n目标位姿:")
+        print(f"  位置调整: x+{x_adjustment}, z+{z_adjustment}")
+        print(f"  目标位置: x={pose_target[0]:.2f}, y={pose_target[1]:.2f}, z={pose_target[2]:.2f}")
+        print(f"  目标姿态: rx={pose_target[3]:.2f}°, ry={pose_target[4]:.2f}°, rz={pose_target[5]:.2f}°")
+    
+    # 执行移动
+    dobot.move_to_pose(
+        pose_target[0], pose_target[1], pose_target[2],
+        pose_target[3], pose_target[4], pose_target[5],
+        speed=adjust_speed, acceleration=1
+    )
+    
+    # 等待移动完成
+    if wait_time is None:
+        # 根据速度自动计算等待时间（速度越慢，等待时间越长）
+        wait_time = 1.0 / adjust_speed if adjust_speed > 0 else 0.1
+    
+    wait_rate = rospy.Rate(1.0 / wait_time)
+    wait_rate.sleep()
+    
+    # 验证是否到达目标位置
+    pose_after_adjust = dobot.get_pose()
+    angle_error = abs(pose_after_adjust[3] - pose_target[3])
+    
+    if verbose:
+        print(f"\n姿态调整完成:")
+        print(f"  实际Rx: {pose_after_adjust[3]:.2f}° (目标: {pose_target[3]:.2f}°)")
+        print(f"  角度误差: {angle_error:.2f}°")
+        if angle_error < 2.0:
+            print("  ✅ 姿态调整精度良好")
+        else:
+            print("  ⚠️  姿态调整存在偏差")
+    
+    success = angle_error < 5.0  # 5度以内认为成功
+    
+    return {
+        'success': success,
+        'initial_pose': pose_now,
+        'target_pose': pose_target,
+        'final_pose': pose_after_adjust,
+        'delta_angle': delta_ee,
+        'x_adjustment': x_adjustment,
+        'z_adjustment': z_adjustment,
+        'angle_error': angle_error
+    }
+
+
+def descend_with_force_feedback(
+    dobot,
+    move_step=1,
+    max_steps=700,
+    force_threshold=1.0,
+    sample_interval=0.03,
+    max_force_samples=30,
+    consecutive_hits_required=2,
+    speed=5,
+    verbose=True
+):
+    """
+    垂直下降并通过力传感器检测表面接触
+    
+    Args:
+        dobot: Dobot机械臂对象
+        move_step: 每步下降距离 (mm)，默认1
+        max_steps: 最大下降步数，默认700
+        force_threshold: 力阈值 (N)，默认1.0
+        sample_interval: 力采样间隔 (秒)，默认0.03
+        max_force_samples: 每步最大采样次数，默认30
+        consecutive_hits_required: 连续检测到力的次数要求，默认2
+        speed: 移动速度，默认5
+        verbose: 是否打印详细信息
+    
+    Returns:
+        dict: {
+            'contact_detected': bool,      # 是否检测到接触
+            'contact_force': float,        # 接触时的力值 (N)
+            'descent_distance': float,     # 总下降距离 (mm)
+            'steps_taken': int,            # 实际步数
+            'initial_pose': list,          # 初始位姿
+            'final_pose': list,            # 最终位姿
+            'force_history': list          # 力值历史记录（可选）
+        }
+    """
+    if verbose:
+        print("\n" + "="*60)
+        print("开始垂直下降并监测力反馈...")
+        print("="*60)
+        print(f"参数配置:")
+        print(f"  下降步长: {move_step} mm")
+        print(f"  最大步数: {max_steps}")
+        print(f"  力阈值: {force_threshold} N")
+        print(f"  采样间隔: {sample_interval} s")
+        print(f"  连续检测要求: {consecutive_hits_required} 次")
+    
+    # 记录初始位姿
+    pose_initial = dobot.get_pose()
+    pose_current = pose_initial.copy()
+    
+    if verbose:
+        print(f"\n初始位置: x={pose_initial[0]:.2f}, y={pose_initial[1]:.2f}, z={pose_initial[2]:.2f}")
+    
+    # 初始化检测变量
+    contact_detected = False
+    contact_force = 0.0
+    steps_taken = 0
+    force_history = []
+    
+    # 开始逐步下降
+    for step in range(max_steps):
+        # 控制循环频率
+        wait = rospy.Rate(33)
+        wait.sleep()
+        
+        # 下降一步
+        pose_current[2] -= move_step
+        dobot.move_to_pose(
+            pose_current[0], pose_current[1], pose_current[2],
+            pose_current[3], pose_current[4], pose_current[5],
+            speed=speed, acceleration=1
+        )
+        
+        steps_taken = step + 1
+        
+        # 采样力传感器数据
+        consecutive_hits = 0
+        for sample_idx in range(max_force_samples):
+            short_wait = rospy.Rate(1 / sample_interval)
+            short_wait.sleep()
+            
+            force_values = dobot.get_force()
+            if not force_values:
+                continue
+            
+            # 计算最大力分量
+            max_force_component = max(abs(value) for value in force_values)
+            force_history.append(max_force_component)
+            
+            if verbose and sample_idx == 0:  # 只打印每步的第一个采样
+                print(f"  步骤 {steps_taken}/{max_steps}: z={pose_current[2]:.2f}mm, F_max={max_force_component:.2f}N", end="")
+            
+            # 检查是否超过阈值
+            if max_force_component >= force_threshold:
+                consecutive_hits += 1
+                contact_force = max_force_component
+                
+                if consecutive_hits >= consecutive_hits_required:
+                    contact_detected = True
+                    if verbose:
+                        print(f" ✅ 检测到接触！")
+                    break
+            else:
+                consecutive_hits = 0
+        
+        if verbose and not contact_detected:
+            print()  # 换行
+        
+        # 如果检测到接触，退出循环
+        if contact_detected:
+            if verbose:
+                print(f"\n接触检测成功:")
+                print(f"  下降步数: {steps_taken}")
+                print(f"  下降距离: {steps_taken * move_step} mm")
+                print(f"  接触力: {contact_force:.2f} N")
+                print(f"  最终z坐标: {pose_current[2]:.2f} mm")
+            break
+    else:
+        # 达到最大步数仍未检测到接触
+        if verbose:
+            print(f"\n⚠️ 达到最大移动距离 ({max_steps * move_step} mm)，未检测到明显接触")
+    
+    # 获取最终位姿
+    pose_final = dobot.get_pose()
+    descent_distance = steps_taken * move_step
+    
+    if verbose:
+        print("="*60)
+    
+    return {
+        'contact_detected': contact_detected,
+        'contact_force': contact_force,
+        'descent_distance': descent_distance,
+        'steps_taken': steps_taken,
+        'initial_pose': pose_initial,
+        'final_pose': pose_final,
+        'force_history': force_history if len(force_history) < 1000 else []  # 避免返回过大数据
+    }
