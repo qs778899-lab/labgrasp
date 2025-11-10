@@ -130,7 +130,7 @@ if __name__ == "__main__":
 
   # Save poses to CSV ，preserving 4x4 structure (4 lines per pose, blank line between poses)
   if len(pose_array) > 0:
-    output_csv_file = os.path.join(args.record_dir, args.output_csv)
+    output_csv_file = os.path.join(args.record_dir, args.output_csv)  #weight save path
     with open(output_csv_file, 'w') as f:
       for pose in pose_array:
         mat = np.array(pose, dtype=float).reshape(4,4)

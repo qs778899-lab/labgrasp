@@ -29,7 +29,6 @@ import rospy
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from ros_utils import ROSSubscriberTest, DummySubscriber
 
 
 
@@ -69,9 +68,160 @@ def init_robot():
     return dobot, gripper
 
 
-# ---------- ROS节点 -------------------------------------------------------
-# ROSSubscriberTest类已移至ros_utils.py模块中
-# 使用方法: from ros_utils import ROSSubscriberTest, DummySubscriber
+#??? ros 配置可以封装进另一个函数里吗？
+# ---------- ROS节点 ----------
+class ROSSubscriberTest:
+    def __init__(self):
+        """初始化ROS节点和订阅者"""
+        rospy.init_node('ros_subscriber_test', anonymous=True)  ##ros node name 只是告诉 ROS：“我这个节点叫什么”，与任何话题名或函数名没有直接绑定关系；保持唯一性即可。
+        
+        # 初始化cv_bridge用于图像转换
+        self.bridge = CvBridge()
+
+        #mark: 整体的ros接收信息方案： callback_function + 缓存(atest_tracking_data,latest_image) + 访问函数(get_latest_tracking_data,get_latest_image)
+        
+        # 缓存最新的tracking_data
+        self.latest_tracking_data = {
+            'angle_z_deg': 0.0,
+            'b': 0.0,
+            'x': 0.0,
+            'y': 0.0,
+            'timestamp': 0.0,
+            'valid': False
+        }
+        self.data_lock = threading.Lock()
+        
+        # 缓存最新的image
+        self.latest_image = None
+        self.image_timestamp = 0.0
+        self.image_lock = threading.Lock()
+        
+        # 缓存最新的原始图像（用于图像处理）
+        self.latest_raw_image = None
+        self.raw_image_timestamp = 0.0
+        self.raw_image_lock = threading.Lock()
+
+        
+        # 订阅tracking_data topic
+        self.tracking_sub = rospy.Subscriber(
+            'tracking_data', #topic name: tracking_data
+            Float64MultiArray, 
+            self.tracking_callback #mark: callback_function 
+        )
+        
+        # 订阅object_orientation topic  
+        self.image_sub = rospy.Subscriber(
+            'image_object_orientation', #topic name: image_object_orientation
+            Image,
+            self.image_callback
+        )
+        
+        # 订阅raw_image topic (纯净原始图像，用于图像处理)
+        self.raw_image_sub = rospy.Subscriber(
+            'raw_image', #topic name: raw_image
+            Image,
+            self.raw_image_callback
+        )
+        
+        print("ROS订阅者已启动，等待数据...")
+        
+    def tracking_callback(self, msg):
+        """处理tracking_data消息"""
+        if len(msg.data) >= 4:
+            angle_z_deg = msg.data[0]
+            b = msg.data[1] 
+            x = msg.data[2]
+            y = msg.data[3]
+
+            with self.data_lock:
+                self.latest_tracking_data.update({
+                    'angle_z_deg': angle_z_deg,
+                    'b': b,
+                    'x': x,
+                    'y': y,
+                    'timestamp': time.time(),
+                    'valid': True
+                })
+            
+            # print(f"📊 跟踪数据: 角度={angle_z_deg:.2f}°, 截距={b:.6f}, 位置=({x:.6f}, {y:.6f})")
+        else:
+            pass
+            # print(f"⚠️  跟踪数据格式错误，期望4个值，实际收到{len(msg.data)}个值")
+    
+    def image_callback(self, msg):
+        """处理object_orientation图像消息"""
+        try:
+            # print(f"[DEBUG] 图像回调被触发！消息类型: {type(msg)}")
+            # print(f"[DEBUG] 图像编码: {msg.encoding}, 尺寸: {msg.width}x{msg.height}")
+            
+            # 将ROS图像消息转换为OpenCV格式
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            
+            # 线程安全地保存图像
+            with self.image_lock:
+                self.latest_image = cv_image.copy()
+                self.image_timestamp = time.time()
+            
+            # # 显示图像
+            # cv2.imshow("Object Orientation", cv_image)
+            # cv2.waitKey(1)  # 非阻塞等待，允许其他处理
+            height, width = cv_image.shape[:2]
+            # print(f"🖼️  成功接收并保存图像: {width}x{height} pixels")
+            
+        except Exception as e:
+            print(f"❌ 图像处理错误: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def raw_image_callback(self, msg):
+        """处理raw_image原始图像消息"""
+        try:
+            # 将ROS图像消息转换为OpenCV格式
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            
+            # 线程安全地保存原始图像
+            with self.raw_image_lock:
+                self.latest_raw_image = cv_image.copy()
+                self.raw_image_timestamp = time.time()
+            
+            height, width = cv_image.shape[:2]
+            # print(f"📷 成功接收原始图像: {width}x{height} pixels")
+            
+        except Exception as e:
+            # Fallback: 手动解析ROS Image消息（绕过cv_bridge的libffi问题）
+            print(f"❌ raw 图像处理错误: {e}")
+            
+    
+    #mark: 在callback_function基础上，访问缓存的最新数据
+    def get_latest_tracking_data(self):
+        """获取最新的跟踪数据（线程安全）"""
+        with self.data_lock:
+            return self.latest_tracking_data.copy()
+    
+    def get_latest_image(self):
+        """获取最新的图像数据（线程安全）"""
+        with self.image_lock:
+            if self.latest_image is not None:
+                return self.latest_image.copy(), self.image_timestamp
+            else:
+                return None, 0.0
+    
+    def get_latest_raw_image(self):
+        """获取最新的原始图像数据（线程安全）"""
+        with self.raw_image_lock:
+            if self.latest_raw_image is not None:
+                return self.latest_raw_image.copy(), self.raw_image_timestamp
+            else:
+                return None, 0.0
+    
+    def run(self):
+        """运行订阅者"""
+        try:
+            # 非阻塞保活循环：等待ROS事件，但不主动退出
+            while not rospy.is_shutdown():
+                time.sleep(0.05)
+        except KeyboardInterrupt:
+            print("\n ros中断,正在退出...")
 
 
 if __name__ == "__main__":
@@ -113,7 +263,10 @@ if __name__ == "__main__":
         time.sleep(1)  # 短暂等待ROS节点启动
     except Exception as e:
         print(f"⚠️  ROS订阅者启动失败: {e}")
-        # 使用ros_utils中的DummySubscriber作为占位对象，防止后续代码出错
+        # 创建一个空的占位对象，防止后续代码出错
+        class DummySubscriber:
+            def get_latest_tracking_data(self):
+                return {'valid': False, 'angle_z_deg': 0.0, 'b': 0.0, 'x': 0.0, 'y': 0.0, 'timestamp': 0.0}
         ros_subscriber = DummySubscriber()
 
     # 初始化评分器和姿态优化器
@@ -181,7 +334,8 @@ if __name__ == "__main__":
                 # cv2.waitKey(0) #waitKey(0) 是一种阻塞
                 # input("break001") #input也是一种阻塞
                 # print("break001")
-    
+                
+                #? 清理内存 (这个有用吗？)
                 torch.cuda.empty_cache()
                 gc.collect()
  
@@ -190,9 +344,12 @@ if __name__ == "__main__":
                 # 使用上一次检测的结果
                 center_pose = last_valid_pose
                 # print(f"第{frame_count}帧使用上次检测结果")
+            
 
             print("center_pose_object: ", center_pose) 
+            
             frame_count += 1
+
             if center_pose is not None:
                 break
 
@@ -232,10 +389,11 @@ if __name__ == "__main__":
             angle_z_deg = -45  # 朝里
             print("从未接收到ROS数据，使用默认角度: -45°")
 
+
     # 将center_pose转换为numpy数组
     center_pose_array = np.array(center_pose, dtype=float)
     
-# -------执行抓取-------------------------------------------------------
+    # ------使用封装函数执行抓取------
     # 配置抓取参数
     z_xoy_angle = 0 # 物体绕z轴旋转角度
     vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
@@ -265,19 +423,22 @@ if __name__ == "__main__":
     dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=7, acceleration=1) 
 
 
-#-------检测玻璃棒方向-------------------------------------------------------
     #mark: 循环获取ROS原始图像并检测方向，直到检测成功
-    print("开始检测玻璃棒方向...")
-
+    print("\n" + "="*60)
+    print("🔍 开始检测玻璃棒方向...")
+    print("="*60)
+    
     detected_angles = None
     avg_angle = 0.0
     detection_attempts = 0
     
     while True:
         detection_attempts += 1
+        
         # 获取ROS原始图像数据
         raw_image, img_timestamp = ros_subscriber.get_latest_raw_image()
         has_new_image = raw_image is not None
+        
         if has_new_image:
             # 收到新图像，进行方向检测
             print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
@@ -303,6 +464,7 @@ if __name__ == "__main__":
             detected_angles = []
             avg_angle = 0.0
             break
+
     # 记录angle_z_deg 和 detected_angles到log文件
     with open(angle_log_path, 'a') as f:
         angles_str = str(detected_angles) if detected_angles is not None else "None"
@@ -359,7 +521,10 @@ if __name__ == "__main__":
             force_values = dobot.get_force()
             if not force_values:
                 continue
+
             print("force_values: ", force_values)
+            
+
             max_force_component = max(abs(value) for value in force_values)
             if max_force_component >= force_threshold:
                 consecutive_hits += 1
@@ -380,7 +545,11 @@ if __name__ == "__main__":
     else:
         print("达到垂直向下最大移动距离，未检测到明显受力变化")
 
+    print("玻璃棒下降检测完成\n")
+
         
+    # 可选：返回home位置（根据需要取消注释）
+    # dobot.move_to_pose(435.4503, 281.809, 348.9125, -179.789, -0.8424, 14.4524, speed=9)
 
     #移动到目标位置
     pose_now = dobot.get_pose()
@@ -388,7 +557,4 @@ if __name__ == "__main__":
     rx_target, ry_target, rz_target= pose_now[3], pose_now[4], pose_now[5]
     # dobot.move_to_pose(x_target, y_target, z_target, rx_target, ry_target, rz_target, speed=9)
 
-
-    # 可选：返回home位置（根据需要取消注释）
-    # dobot.move_to_pose(435.4503, 281.809, 348.9125, -179.789, -0.8424, 14.4524, speed=9)
 
