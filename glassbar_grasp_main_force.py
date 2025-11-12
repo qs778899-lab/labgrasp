@@ -102,6 +102,7 @@ if __name__ == "__main__":
     mesh = trimesh.load(mesh_file)
     #? openscad的单位是mm， 但是转为obj文件后单位又变成m，所以还是需要转换！
     mesh.vertices /= 1000 #! 单位转换除以1000
+    mesh.vertices *= 2
     # mesh.vertices /= 3
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
@@ -163,9 +164,10 @@ if __name__ == "__main__":
             # 每隔30帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
                 #使用GroundingDINO进行语义理解找到物体的粗略位置，SAM获取物体的相对精确掩码
-                mask = get_mask_from_GD(color, "red stirring rod")
+                # mask = get_mask_from_GD(color, "red stirring rod")
                 # mask = get_mask_from_GD(color, "Plastic dropper") 
-                # mask = get_mask_from_GD(color, "long yellow bar")
+                # mask = get_mask_from_GD(color, "yellow stirring rod")
+                mask = get_mask_from_GD(color, "yellow cuboid")
                 # mask = get_mask_from_GD(color, "long red bar")
                 # print("mask_shape: ", mask.shape)
             
@@ -183,9 +185,9 @@ if __name__ == "__main__":
                 cv2.imwrite(mask_path, mask)
                 cv2.imwrite(vis_path, vis[...,::-1])                
 
-                # cv2.waitKey(0) #waitKey(0) 是一种阻塞
-                # input("break001") #input也是一种阻塞
-                # print("break001")
+                cv2.waitKey(0) #waitKey(0) 是一种阻塞
+                input("break001") #input也是一种阻塞
+                print("break001")
     
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -196,7 +198,7 @@ if __name__ == "__main__":
                 center_pose = last_valid_pose
                 # print(f"第{frame_count}帧使用上次检测结果")
 
-            print("In camera coordinates, center_pose_object: ", center_pose)  #eg:  x=-0.011149, y=-0.12429, z=0.51674
+            print("In camera coordinates, center_pose_object: ", center_pose)  #eg:  x=0.11175, y=-0.14139, z=0.59187
             frame_count += 1
             if center_pose is not None:
                 break
@@ -260,7 +262,7 @@ if __name__ == "__main__":
         T_tcp_ee_z= -0.16, 
         T_safe_distance= 0.00, #可灵活调整
         z_safe_distance=z_safe_distance,
-        gripper_close_pos=15,
+        gripper_close_pos=12,
         verbose=True
     )
     

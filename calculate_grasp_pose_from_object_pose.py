@@ -940,8 +940,8 @@ def calculate_grasppose_from_objectpose_withoutmove(
     
     # ------计算在机器人基系中的object pose------
     # T_cam_object = SE3(center_pose_array, check=False)
-    pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
-    # pose_now = [470, -20, 430, 195, 0, -90]
+    # pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
+    pose_now = [470, -20, 430, 195, 0, -90] #这个是定点识别hole时dobot的pose
     x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
     
     # if verbose:

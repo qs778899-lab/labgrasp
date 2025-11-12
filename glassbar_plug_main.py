@@ -144,7 +144,7 @@ if __name__ == "__main__":
         
     #     print(f"\n获取到的目标点信息:")
     #     # print(f"  像素坐标: {pixel_coord}")
-    #     print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (-0.0562, -0.0657, 0.7580) m
+    #     print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (0.0582, -0.1203, 0.5940) m
     #     print(f"  深度值: {depth_value:.4f} m\n")
     #     # 转换为numpy数组
     #     target_point_in_camera = np.array([camera_coord[0], camera_coord[1], camera_coord[2]])  # 相机坐标系下的3D坐标
@@ -152,7 +152,10 @@ if __name__ == "__main__":
     # else:
     #     print("未选择目标点，跳过该步骤继续...\n")
 
-    target_point_in_camera = np.array([-0.0562, -0.0657, 0.7580]) # 相机坐标系下的物体的3D坐标
+    # input("break000")
+
+    #错误: 0.0582, -0.1203, 0.5940
+    target_point_in_camera = np.array([0.11175, 0.14139, 0.59187]) # 相机坐标系下的物体的3D坐标. eg2: x=0.11175, y=-0.14139, z=0.59187.  eg3: 
 
     #-----计算抓取姿态但不抓取-------------------------------------------------------
     #转换为机器人基坐标系
@@ -174,11 +177,22 @@ if __name__ == "__main__":
             z_safe_distance=z_safe_distance,
             verbose=True,
             target_point_camera=target_point_in_camera,)
+    print("target_pos_mm: ", target_pos_mm) #错误eg: [     759.45     -234.16        -391]
+    #eg2: 
 
     
     # ------直接移动到玻璃棒上方抓取，直接给坐标值-------------------------------------------------------
-    dobot.move_to_pose(575, -220, 75, T_base_ee_ideal.t[2], rx, ry, rz, speed=7, acceleration=1) 
-    gripper.control(position=19, force=10, speed=15)
+    dobot.move_to_pose(585, -220, 79, rx, ry, rz, speed=13, acceleration=1) 
+    wait_move = rospy.Rate(1/2)
+    wait_move.sleep()
+    gripper.control(position=17, force=12, speed=27)
+    wait_grasp = rospy.Rate(1/5)
+    wait_grasp.sleep()
+
+    pose_now = dobot.get_pose()
+    x_adjustment = 42
+    z_adjustment = 60
+    dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=9)
     
 
 
@@ -314,7 +328,7 @@ if __name__ == "__main__":
 
 
 
-    wait1 = rospy.Rate(1.0 / 5.0)
+    wait1 = rospy.Rate(1.0 / 6.0)
     wait1.sleep()
 #-------检测玻璃棒方向-------------------------------------------------------
     #mark: 循环获取ROS原始图像并检测方向，直到检测成功
@@ -363,10 +377,12 @@ if __name__ == "__main__":
         dobot=dobot,
         avg_angle=avg_angle, # 检测到的玻璃棒当前倾斜角度（度）
         grasp_tilt_angle=grasp_tilt_angle,
+        x_adjustment = 0,
+        z_adjustment = 0,
         verbose=True
     )
 
-    wait_rate = rospy.Rate(1.0 / 6.0)  
+    wait_rate = rospy.Rate(1.0 / 3.0)  
     wait_rate.sleep()
     
 
@@ -375,8 +391,9 @@ if __name__ == "__main__":
 
     #移动到目标位置
     pose_now = dobot.get_pose()
+    z_safe_adjustment = 200
     #target_pos_mm
-    dobot.move_to_pose(target_pos_mm[0], target_pos_mm[1], target_pos_mm[2]+120, pose_now[3], pose_now[4], pose_now[5], speed=9)
+    # dobot.move_to_pose(target_pos_mm[0], target_pos_mm[1], target_pos_mm[2]+z_safe_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=9)
 
     # # 调用封装函数：垂直下降并检测力反馈
     # descend_result = descend_with_force_feedback(
