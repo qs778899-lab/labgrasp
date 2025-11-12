@@ -902,6 +902,239 @@ def calculate_grasppose_from_objectpose_servop(
 
 
 
+
+#------仅进行坐标变换和姿态计算------
+def calculate_grasppose_from_objectpose_withoutmove(   
+    dobot,
+    gripper,
+    T_ee_cam,
+    z_xoy_angle,
+    vertical_euler,
+    grasp_tilt_angle,
+    angle_threshold,
+    T_tcp_ee_z,
+    T_safe_distance,
+    z_safe_distance,
+    verbose=True,
+    pose_now = None,
+    target_point_camera=None,
+    center_pose_array=None,
+):
+    
+    if vertical_euler is None:
+        vertical_euler = [-180, 0, -90]
+
+
+    #-----人为构建相机坐标系中object pose array
+
+    default_center_pose_array_list = [[   -0.55501,     0.83005,   -0.054608,   -0.032396],
+                                      [    0.77245,      0.4899,    -0.40413,   -0.094595],
+                                      [    -0.3087,    -0.26648,    -0.91307,     0.51951],
+                                      [          0,          0,          0,          1]]
+    default_rotation_matrix = np.array(default_center_pose_array_list, dtype=float)[:3, :3]
+    target_point_camera = np.asarray(target_point_camera, dtype=float).reshape(3)
+    new_pose = SE3.Rt(default_rotation_matrix, target_point_camera, check=False)
+    T_cam_object = new_pose
+    print("T_cam_object: ",  np.array(T_cam_object, dtype=float))
+    
+    
+    # ------计算在机器人基系中的object pose------
+    # T_cam_object = SE3(center_pose_array, check=False)
+    pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
+    # pose_now = [470, -20, 430, 195, 0, -90]
+    x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
+    
+    # if verbose:
+    #     print(f"\n[信息] 当前机器人位姿: {pose_now}")
+    
+    # 从当前机器人位姿构造变换矩阵 T_base_ee
+    T_base_ee = SE3.Rt(
+        SO3.RPY([rx_e, ry_e, rz_e], unit='deg', order='zyx'),
+        np.array([x_e, y_e, z_e]) / 1000.0,  # 毫米转米
+        check=False
+    )
+    
+    # 坐标变换链: T_base_cam = T_base_ee * T_ee_cam
+    T_base_cam = T_base_ee * T_ee_cam
+    # T_base_obj = T_base_cam * T_cam_obj（物体在机器人基坐标系中的位姿）
+    T_base_obj = T_base_cam * T_cam_object
+    
+    # ------check part : 检查在机器人基系中，object pose的z轴方向------
+    # if verbose:
+    #     print("\n[检查] 物体在机器人基坐标系中的位姿:")
+    #     print_pose_info(T_base_obj, "物体位姿 (机器人基坐标系)")
+    
+    # ------object pose 调整------
+    T_base_obj_array = np.array(T_base_obj, dtype=float)
+    
+    # 1. 将object pose的z轴调整为垂直桌面朝上
+    current_rotation_matrix = T_base_obj_array[:3, :3]
+    current_z_axis = current_rotation_matrix[:3, 2]  # 提取当前z轴方向
+    target_z_axis = np.array([0, 0, 1])  # 目标z轴方向（垂直向上）
+    # 计算当前z轴与目标z轴的夹角
+    z_angle_error = np.degrees(np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0)))
+    
+    if verbose:
+        pass
+        # print(f"\n[姿态调整] 当前z轴与垂直方向的偏差: {z_angle_error:.2f}°")
+    
+    if z_angle_error > angle_threshold:
+        if verbose:
+            pass
+            # print("z轴偏差较大，进行对齐...")
+        
+        # 计算旋转轴（两向量叉乘）
+        rotation_axis = np.cross(current_z_axis, target_z_axis)
+        rotation_axis_norm = np.linalg.norm(rotation_axis)
+        
+        if rotation_axis_norm < 1e-6:  # 两轴几乎平行
+            rotation_matrix_new = current_rotation_matrix
+        else:
+            rotation_axis = rotation_axis / rotation_axis_norm  # 单位化旋转轴
+            rotation_angle = np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0))
+            # 构造反对称矩阵K（用于Rodrigues旋转公式）
+            K = np.array([
+                [0, -rotation_axis[2], rotation_axis[1]],
+                [rotation_axis[2], 0, -rotation_axis[0]],
+                [-rotation_axis[1], rotation_axis[0], 0]
+            ])
+            # Rodrigues旋转公式: R = I + sin(θ)K + (1-cos(θ))K²
+            R_z_align = np.eye(3) + np.sin(rotation_angle) * K + (1 - np.cos(rotation_angle)) * np.dot(K, K)
+            rotation_matrix_new = np.dot(R_z_align, current_rotation_matrix)
+        
+        T_base_obj_aligned = np.eye(4)
+        T_base_obj_aligned[:3, :3] = rotation_matrix_new
+        T_base_obj_aligned[:3, 3] = T_base_obj_array[:3, 3]
+        T_base_obj_final = SE3(T_base_obj_aligned, check=False)
+    else:
+        if verbose:
+            pass
+            # print("z轴偏差在可接受范围内，使用原始姿态")
+        T_base_obj_final = T_base_obj
+    
+    # 2. 将object pose的x,y轴对齐到机器人基坐标系的x,y轴
+    rotation_matrix_after_z = np.array(T_base_obj_final.R)
+    current_x_axis = rotation_matrix_after_z[:3, 0]  # 提取当前x轴方向
+    # 将x轴投影到水平面（xy平面）
+    x_projected = np.array([current_x_axis[0], current_x_axis[1], 0])
+    x_projected_norm = np.linalg.norm(x_projected)
+    
+    if x_projected_norm > 1e-6:
+        x_projected = x_projected / x_projected_norm  # 单位化投影向量
+        # 计算投影与基坐标系x轴的夹角
+        x_angle = np.arctan2(x_projected[1], x_projected[0])
+        # 构造绕z轴旋转矩阵（消除该夹角）
+        R_z_align_xy = np.array([
+            [np.cos(-x_angle), -np.sin(-x_angle), 0],
+            [np.sin(-x_angle), np.cos(-x_angle), 0],
+            [0, 0, 1]
+        ])
+        rotation_matrix_final = np.dot(R_z_align_xy, rotation_matrix_after_z)
+        T_base_obj_final_aligned = np.eye(4)
+        T_base_obj_final_aligned[:3, :3] = rotation_matrix_final
+        T_base_obj_final_aligned[:3, 3] = T_base_obj_array[:3, 3]
+        T_base_obj_final = SE3(T_base_obj_final_aligned, check=False)
+        if verbose:
+            pass
+            # print("x,y轴对齐完成")
+    else:
+        if verbose:
+            pass
+            # print("x轴在水平面的投影太小，跳过x,y轴对齐")
+    
+    # 3. 将object pose绕z轴旋转指定角度
+    # if verbose:
+    #     print(f"\n[姿态调整] 将object pose绕z轴旋转{z_xoy_angle}度...")
+    
+    T_base_obj_array = T_base_obj_final.A
+    current_rotation = T_base_obj_array[:3, :3]
+    current_translation = T_base_obj_array[:3, 3]
+    
+    # 构造绕z轴旋转的旋转矩阵
+    theta = np.radians(z_xoy_angle)
+    R_z = np.array([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta), np.cos(theta), 0],
+        [0, 0, 1]
+    ])
+    new_rotation = np.dot(R_z, current_rotation)  # 左乘以在基坐标系中旋转
+    T_base_obj_rotated = np.eye(4)
+    T_base_obj_rotated[:3, :3] = new_rotation
+    T_base_obj_rotated[:3, 3] = current_translation
+    T_base_obj_final = SE3(T_base_obj_rotated, check=False)
+    
+    # ------check part : 检查调整后的物体姿态------
+    # if verbose:
+    #     print("\n[检查] 调整后的最终物体姿态:")
+    #     print_pose_info(T_base_obj_final, "调整后物体位姿 (机器人基坐标系)")
+    
+    # ------调整抓取姿态------
+    # 在垂直抓取基础上叠加倾斜角度
+    tilted_euler = [vertical_euler[0] + grasp_tilt_angle, vertical_euler[1], vertical_euler[2]]
+    
+    # if verbose:
+    #     print(f"\n[抓取姿态] 垂直抓取姿态: {vertical_euler}")
+    #     print(f"[抓取姿态] 倾斜角度: {grasp_tilt_angle}°")
+    #     print(f"[抓取姿态] 最终抓取姿态: {tilted_euler}")
+    
+    # 从欧拉角构造抓取姿态（相对于物体坐标系）
+    R_target_xyz = R.from_euler('xyz', tilted_euler, degrees=True)
+    T_object_grasp_ideal = SE3.Rt(
+        SO3(R_target_xyz.as_matrix()),
+        [0, 0, 0],  # 抓取点在物体中心
+        check=False
+    )
+    
+    # ------check part : 检查相对抓取姿态------
+    if verbose:
+        pass
+        # print("\n[检查] 相对抓取姿态 (物体坐标系):")
+        print_pose_info(T_object_grasp_ideal, "T_object_grasp_ideal")
+    
+    # ------计算在机器人基系中，夹爪grasp即tcp的抓取姿态------
+    # 坐标变换链: T_base_grasp = T_base_obj * T_obj_grasp
+    T_base_grasp_ideal = T_base_obj_final * T_object_grasp_ideal
+    
+    # ------check part : 检查最终抓取姿态------
+    if verbose:
+        pass
+        # print("\n[检查] 最终抓取姿态 (机器人基坐标系):")
+        print_pose_info(T_base_grasp_ideal, "T_base_grasp_ideal")
+    
+    # ------计算在机器人基系中，末端执行器ee的抓取姿态------
+    # TCP到末端执行器的偏移（z方向）
+    T_tcp_ee = SE3(0, 0, T_tcp_ee_z)
+    T_safe_distance = SE3(0, 0, T_safe_distance)  # 额外安全距离
+    # 变换链: T_base_ee = T_base_grasp * T_grasp_tcp * T_tcp_ee * T_safe
+    T_base_ee_ideal = T_base_grasp_ideal * T_tcp_ee * T_safe_distance
+    
+    # ------执行抓取动作------
+    pos_mm = T_base_ee_ideal.t * 1000  # 转换为毫米
+    # 提取ZYX欧拉角（机械臂使用的旋转顺序）
+    rx, ry, rz = T_base_ee_ideal.rpy(unit='deg', order='zyx')
+    rz = normalize_angle(rz)  # 规范化到[-180, 180]度
+    
+    # pos_mm[2] += z_safe_distance  # 添加z方向额外安全距离（避免碰撞）
+    
+    # if verbose:
+    #     print(f"\n[执行] 目标位置: [{pos_mm[0]:.2f}, {pos_mm[1]:.2f}, {pos_mm[2]:.2f}] mm")
+    #     print(f"[执行] 目标姿态: rx={rx:.2f}°, ry={ry:.2f}°, rz={rz:.2f}°")
+    #     print(f"[执行] 移动速度: {move_speed}")
+    
+    # adjusted_pos = [pos_mm[0], pos_mm[1], pos_mm[2]]
+    
+    # # 最终位置（要不要去掉安全距离）
+    # final_pos = [pos_mm[0], pos_mm[1], pos_mm[2]]
+    # dobot.move_to_pose(*final_pos, rx, ry, rz, speed=move_speed)
+
+
+    return T_base_ee_ideal, pos_mm, rx, ry, rz
+
+
+
+
+
+
 #------ 通过视触觉传感器计算玻璃棒倾斜角度------
 def detect_dent_orientation(img, save_dir=None):
     # 设置matplotlib支持中文显示（抑制警告）

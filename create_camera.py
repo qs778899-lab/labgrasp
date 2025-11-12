@@ -154,6 +154,132 @@ class CreateRealsense:
         self.running = False
         self.pipeline.stop()
 
+    def get_point_coordinate(self, window_name="select_point"):
+        """
+        显示实时画面，允许用户点击获取该点在相机坐标系中的3D坐标
+        
+        Returns:
+            dict: 包含点击点的像素坐标和3D坐标
+                {
+                    'pixel': (x, y),           # 像素坐标
+                    'camera_coord': (X, Y, Z), # 相机坐标系中的3D坐标 (米)
+                    'depth': depth_value       # 深度值 (米)
+                }
+            如果用户取消或出错，返回 None
+        """
+        click_data = {'clicked': False, 'x': 0, 'y': 0}
+        selected_point = None
+        
+        def mouse_callback(event, x, y, flags, param):
+            """鼠标回调函数"""
+            if event == cv2.EVENT_LBUTTONDOWN:
+                click_data['clicked'] = True
+                click_data['x'] = x
+                click_data['y'] = y
+        
+        # 获取相机内参
+        profile = self.pipeline.get_active_profile()
+        color_stream = profile.get_stream(rs.stream.color)
+        intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+        
+        print("=" * 60)
+        print("🖱️  交互式坐标选择模式")
+        print("=" * 60)
+        print("操作说明:")
+        print("  - 鼠标左键点击: 选择目标点")
+        print("  - ESC键: 取消并退出")
+        print("=" * 60)
+        
+        try:
+            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+            # 显示一帧空白图像，确保窗口创建成功
+            dummy_frame = np.zeros((50, 50, 3), dtype=np.uint8)
+            cv2.imshow(window_name, dummy_frame)
+            cv2.waitKey(1)
+        except cv2.error as e:
+            print(f"❌ 无法创建窗口: {e}")
+            return None
+
+        try:
+            cv2.setMouseCallback(window_name, mouse_callback)
+        except cv2.error as e:
+            print(f"❌ 无法设置鼠标回调: {e}")
+            cv2.destroyWindow(window_name)
+            return None
+
+        try:
+            while True:
+                # 获取当前帧
+                frame_data = self.get_frames()
+                if frame_data is None:
+                    time.sleep(0.01)
+                    continue
+                
+                color = frame_data['color'].copy()
+                depth = frame_data['depth']
+                
+                # 绘制十字准星和提示信息
+                h, w = color.shape[:2]
+                cv2.line(color, (w//2 - 20, h//2), (w//2 + 20, h//2), (0, 255, 0), 1)
+                cv2.line(color, (w//2, h//2 - 20), (w//2, h//2 + 20), (0, 255, 0), 1)
+                cv2.putText(color, "Click to select point | ESC to cancel", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                
+                # 显示画面
+                cv2.imshow(window_name, color)
+
+                # 检查是否点击
+                if click_data['clicked']:
+                    px, py = click_data['x'], click_data['y']
+                    
+                    # 获取点击点的深度值（单位：毫米）
+                    depth_value_mm = depth[py, px]
+                    depth_value_m = depth_value_mm / 1000.0  # 转换为米
+                    
+                    if depth_value_mm == 0:
+                        print(f"⚠️  警告: 点击点 ({px}, {py}) 的深度值为0，请重新选择")
+                        click_data['clicked'] = False
+                        continue
+                    
+                    # 使用相机内参将像素坐标转换为相机坐标系下的3D坐标
+                    # rs2_deproject_pixel_to_point 函数执行反投影
+                    camera_coord = rs.rs2_deproject_pixel_to_point(
+                        intrinsics, [px, py], depth_value_m
+                    )
+                    
+                    selected_point = {
+                        'pixel': (px, py),
+                        'camera_coord': tuple(camera_coord),
+                        'depth': depth_value_m
+                    }
+                    
+                    print("=" * 60)
+                    print("✅ 已选择点:")
+                    print(f"  像素坐标: ({px}, {py})")
+                    print(f"  深度值: {depth_value_m:.4f} m")
+                    print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m")
+                    print("=" * 60)
+                    
+                    # 在图像上标记选中的点
+                    cv2.circle(color, (px, py), 5, (0, 0, 255), -1)
+                    cv2.putText(color, f"Selected: ({px},{py})", 
+                               (px + 10, py - 10), cv2.FONT_HERSHEY_SIMPLEX, 
+                               0.5, (0, 0, 255), 2)
+                    cv2.imshow(window_name, color)
+                    cv2.waitKey(1000)  # 显示1秒
+                    break
+                
+                # 按ESC退出
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:  # ESC
+                    print("❌ 用户取消选择")
+                    break
+                    
+        finally:
+            cv2.destroyWindow(window_name)
+        
+        return selected_point
+
 def main():
     """显示可用的 RealSense 设备"""
     ctx = rs.context()

@@ -196,7 +196,7 @@ if __name__ == "__main__":
                 center_pose = last_valid_pose
                 # print(f"第{frame_count}帧使用上次检测结果")
 
-            print("center_pose_object: ", center_pose) 
+            print("In camera coordinates, center_pose_object: ", center_pose)  #eg:  x=-0.011149, y=-0.12429, z=0.51674
             frame_count += 1
             if center_pose is not None:
                 break
