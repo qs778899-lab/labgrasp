@@ -1481,7 +1481,13 @@ def _measure_max_force(dobot, samples=5, interval=0.02):
 
 
 def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0):
-    """生成阿基米德螺旋线上的偏移点 (mm)"""
+    """
+    生成阿基米德螺旋线上的偏移点 (mm)
+    step: 螺旋线两圈之间的径向间距 (mm).代表螺旋线的"紧密度"
+    max_radius: 螺旋搜索的最大半径 (mm)，超过则停止生成
+    angle_increment_deg: 螺旋采样的角度增量 (度)
+    
+    """
     if step <= 0 or max_radius <= 0:
         return
     angle_increment = math.radians(angle_increment_deg)
@@ -1499,7 +1505,7 @@ def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0):
 
 def _perform_planar_spiral_search(
     dobot,
-    safe_pose,
+    initial_pose,
     descent_step,
     force_threshold,
     samples_per_check,
@@ -1511,17 +1517,30 @@ def _perform_planar_spiral_search(
     descent_speed,
     verbose,
 ):
+    """
+    在以initial_pose为中心的平面上进行螺旋搜索，寻找低阻力插入点
+    
+    螺旋线以initial_pose的(x,y)为原点，在每个螺旋点上尝试下降并测力
+    """
     attempts = 0
-    last_pose = safe_pose.copy()
+    last_pose = initial_pose.copy()
+    
+    # 获取当前安全高度（用于螺旋搜索时保持Z高度）
+    current_z = initial_pose[2]
+    
     for dx, dy in _generate_spiral_offsets(
         step=spiral_step,
         max_radius=max_spiral_radius,
         angle_increment_deg=spiral_angle_increment_deg,
     ):
         attempts += 1
-        target_pose = safe_pose.copy()
-        target_pose[0] += dx
-        target_pose[1] += dy
+        # 以initial_pose的XY为原点，叠加螺旋偏移
+        target_pose = initial_pose.copy()
+        target_pose[0] += dx  # X偏移
+        target_pose[1] += dy  # Y偏移
+        target_pose[2] = current_z  # 保持在安全高度
+        
+        # 移动到螺旋点（水平移动）
         dobot.move_to_pose(
             target_pose[0], target_pose[1], target_pose[2],
             target_pose[3], target_pose[4], target_pose[5],
@@ -1529,6 +1548,7 @@ def _perform_planar_spiral_search(
         )
         last_pose = dobot.get_pose()
 
+        # 在该点尝试下降
         probe_pose = last_pose.copy()
         probe_pose[2] -= descent_step
         dobot.move_to_pose(
@@ -1537,6 +1557,7 @@ def _perform_planar_spiral_search(
             speed=int(descent_speed), acceleration=1
         )
 
+        # 测量接触力
         measured_force = _measure_max_force(
             dobot,
             samples=samples_per_check,
@@ -1550,8 +1571,8 @@ def _perform_planar_spiral_search(
                 print("    ✅ 发现低力路径，继续下降")
             return True, dobot.get_pose(), attempts
 
-        # 恢复至安全高度后继续下一次尝试
-        recovery_pose = target_pose.copy()
+        # 未找到合适点，恢复到安全高度继续下一次尝试
+        recovery_pose = target_pose.copy()  # 回到螺旋点的安全高度
         dobot.move_to_pose(
             recovery_pose[0], recovery_pose[1], recovery_pose[2],
             recovery_pose[3], recovery_pose[4], recovery_pose[5],
@@ -1568,16 +1589,16 @@ def force_guided_spiral_insertion(
     dobot,
     descent_step=1.0,
     max_descent=25.0,
-    force_threshold=1.5,
+    force_threshold=1.6,
     samples_per_check=6,
     sample_interval=0.03,
-    retract_distance=None,
-    spiral_step=0.5,
+    retract_distance=3.0,
+    spiral_step=1,
     spiral_angle_increment_deg=20.0,
-    max_spiral_radius=5.0,
-    planar_speed=4.0,
+    max_spiral_radius=60.0,
+    planar_speed=3.0,
     descent_speed=3.0,
-    verbose=True,
+    verbose=False,
 ):
     """
     通过力反馈引导的下降与XY螺旋微调，帮助玻璃棒插入孔洞。
@@ -1691,9 +1712,14 @@ def force_guided_spiral_insertion(
         )
         safe_pose = dobot.get_pose()
 
+        # 构造螺旋搜索中心：使用initial_pose的XY，当前安全高度的Z和姿态
+        spiral_center = initial_pose.copy() #6D list
+        spiral_center[2] = safe_pose[2]  # 使用当前安全高度
+        spiral_center[3:] = safe_pose[3:]  # 使用当前姿态
+
         success, adjusted_pose, attempts = _perform_planar_spiral_search(
             dobot=dobot,
-            safe_pose=safe_pose,
+            initial_pose=spiral_center,  # 传递螺旋中心
             descent_step=descent_step,
             force_threshold=force_threshold,
             samples_per_check=samples_per_check,

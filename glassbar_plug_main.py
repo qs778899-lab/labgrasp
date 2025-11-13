@@ -408,17 +408,6 @@ if __name__ == "__main__":
 #-------通过力控下降并在XY平面执行螺旋微调，尝试插入hole-------------------------------------------------------
     insertion_result = force_guided_spiral_insertion(
         dobot=dobot,
-        descent_step=1.0,
-        max_descent=20.0,
-        force_threshold=1.5,
-        samples_per_check=6,
-        sample_interval=0.03,
-        retract_distance=3.0,
-        spiral_step=0.5,
-        spiral_angle_increment_deg=20.0,
-        max_spiral_radius=5.0,
-        planar_speed=4.0,
-        descent_speed=3.0,
         verbose=True,
     )
 
