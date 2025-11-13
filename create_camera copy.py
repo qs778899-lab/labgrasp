@@ -30,7 +30,6 @@ class CreateRealsense:
         self.align = rs.align(rs.stream.color)
         
         # 配置传感器
-        self.depth_scale = None
         self._setup_sensor()
         
         # 预热相机
@@ -51,8 +50,7 @@ class CreateRealsense:
         
         depth_sensor = self.profile.get_device().first_depth_sensor()
         depth_scale = depth_sensor.get_depth_scale()
-        self.depth_scale = float(depth_scale)
-        print(f"深度缩放因子: {self.depth_scale}")
+        print(f"深度缩放因子: {depth_scale}")
 
     def get_frames(self):
         """获取所有帧数据"""
@@ -222,10 +220,10 @@ class CreateRealsense:
                 
                 # 绘制十字准星和提示信息
                 h, w = color.shape[:2]
-                # cv2.line(color, (w//2 - 20, h//2), (w//2 + 20, h//2), (0, 255, 0), 1)
-                # cv2.line(color, (w//2, h//2 - 20), (w//2, h//2 + 20), (0, 255, 0), 1)
-                # cv2.putText(color, "Click to select point | ESC to cancel", 
-                #            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.line(color, (w//2 - 20, h//2), (w//2 + 20, h//2), (0, 255, 0), 1)
+                cv2.line(color, (w//2, h//2 - 20), (w//2, h//2 + 20), (0, 255, 0), 1)
+                cv2.putText(color, "Click to select point | ESC to cancel", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 
                 # 显示画面
                 cv2.imshow(window_name, color)
@@ -234,12 +232,11 @@ class CreateRealsense:
                 if click_data['clicked']:
                     px, py = click_data['x'], click_data['y']
                     
-                    # 获取点击点的深度值（原始单位）
-                    depth_value_raw = float(depth[py, px])
-                    depth_scale = self.depth_scale if self.depth_scale else 0.001
-                    depth_value_m = depth_value_raw * depth_scale
+                    # 获取点击点的深度值（单位：毫米）
+                    depth_value_mm = depth[py, px]
+                    depth_value_m = depth_value_mm / 1000.0  # 转换为米
                     
-                    if depth_value_raw == 0 or depth_value_m <= 0:
+                    if depth_value_mm == 0:
                         print(f"⚠️  警告: 点击点 ({px}, {py}) 的深度值为0，请重新选择")
                         click_data['clicked'] = False
                         continue

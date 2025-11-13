@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import math
 import rospy
 from scipy.spatial.transform import Rotation as R
 from spatialmath import SE3, SO3
@@ -1462,4 +1463,287 @@ def descend_with_force_feedback(
         'initial_pose': pose_initial,
         'final_pose': pose_final,
         'force_history': force_history if len(force_history) < 1000 else []  # 避免返回过大数据
+    }
+
+
+def _measure_max_force(dobot, samples=5, interval=0.02):
+    """采样若干次力传感器数据并返回绝对值最大的分量"""
+    max_force = 0.0
+    for _ in range(max(samples, 1)):
+        force_values = dobot.get_force()
+        if force_values:
+            max_component = max(abs(value) for value in force_values)
+            if max_component > max_force:
+                max_force = max_component
+        if interval > 0:
+            time.sleep(interval) #warning: 这个time.sleep可能没有真正的时间停顿
+    return max_force
+
+
+def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0):
+    """生成阿基米德螺旋线上的偏移点 (mm)"""
+    if step <= 0 or max_radius <= 0:
+        return
+    angle_increment = math.radians(angle_increment_deg)
+    if angle_increment <= 0:
+        angle_increment = math.radians(10.0)
+    b = step / (2.0 * math.pi)  # 每转一圈半径增加 step
+    angle = angle_increment
+    while True:
+        radius = b * angle
+        if radius > max_radius:
+            break
+        yield radius * math.cos(angle), radius * math.sin(angle)
+        angle += angle_increment
+
+
+def _perform_planar_spiral_search(
+    dobot,
+    safe_pose,
+    descent_step,
+    force_threshold,
+    samples_per_check,
+    sample_interval,
+    spiral_step,
+    spiral_angle_increment_deg,
+    max_spiral_radius,
+    planar_speed,
+    descent_speed,
+    verbose,
+):
+    attempts = 0
+    last_pose = safe_pose.copy()
+    for dx, dy in _generate_spiral_offsets(
+        step=spiral_step,
+        max_radius=max_spiral_radius,
+        angle_increment_deg=spiral_angle_increment_deg,
+    ):
+        attempts += 1
+        target_pose = safe_pose.copy()
+        target_pose[0] += dx
+        target_pose[1] += dy
+        dobot.move_to_pose(
+            target_pose[0], target_pose[1], target_pose[2],
+            target_pose[3], target_pose[4], target_pose[5],
+            speed=int(planar_speed), acceleration=1
+        )
+        last_pose = dobot.get_pose()
+
+        probe_pose = last_pose.copy()
+        probe_pose[2] -= descent_step
+        dobot.move_to_pose(
+            probe_pose[0], probe_pose[1], probe_pose[2],
+            probe_pose[3], probe_pose[4], probe_pose[5],
+            speed=int(descent_speed), acceleration=1
+        )
+
+        measured_force = _measure_max_force(
+            dobot,
+            samples=samples_per_check,
+            interval=sample_interval
+        )
+        if verbose:
+            print(f"    [微调] 偏移({dx:.2f}, {dy:.2f})mm -> 力 {measured_force:.2f}N")
+
+        if measured_force < force_threshold:
+            if verbose:
+                print("    ✅ 发现低力路径，继续下降")
+            return True, dobot.get_pose(), attempts
+
+        # 恢复至安全高度后继续下一次尝试
+        recovery_pose = target_pose.copy()
+        dobot.move_to_pose(
+            recovery_pose[0], recovery_pose[1], recovery_pose[2],
+            recovery_pose[3], recovery_pose[4], recovery_pose[5],
+            speed=int(descent_speed), acceleration=1
+        )
+        last_pose = dobot.get_pose()
+
+    if verbose:
+        print("    ❌ 在设定的螺旋半径内未找到合适入口")
+    return False, last_pose, attempts
+
+
+def force_guided_spiral_insertion(
+    dobot,
+    descent_step=1.0,
+    max_descent=25.0,
+    force_threshold=1.5,
+    samples_per_check=6,
+    sample_interval=0.03,
+    retract_distance=None,
+    spiral_step=0.5,
+    spiral_angle_increment_deg=20.0,
+    max_spiral_radius=5.0,
+    planar_speed=4.0,
+    descent_speed=3.0,
+    verbose=True,
+):
+    """
+    通过力反馈引导的下降与XY螺旋微调，帮助玻璃棒插入孔洞。
+
+    Args:
+        dobot: Dobot机械臂对象
+        descent_step: 每次下降的距离 (mm)
+        max_descent: 最大允许的累计下降距离 (mm)
+        force_threshold: 判定接触的力阈值 (N)
+        samples_per_check: 每次力检测的采样次数
+        sample_interval: 力采样间隔 (秒)
+        retract_distance: 检测到接触后回退的距离 (mm)，默认等于descent_step
+        spiral_step: 螺旋线两圈之间的径向间距 (mm)
+        spiral_angle_increment_deg: 螺旋采样的角度增量 (度)
+        max_spiral_radius: 螺旋搜索的最大半径 (mm)
+        planar_speed: XY平移速度
+        descent_speed: Z轴下降速度
+        verbose: 是否打印调试信息
+
+    Returns:
+        dict: {
+            'success': bool,
+            'total_descent': float,
+            'initial_pose': list,
+            'final_pose': list,
+            'planar_attempts': int,
+            'planar_successes': int,
+            'contact_events': list[dict],
+        }
+    """
+    if descent_step <= 0 or max_descent <= 0:
+        raise ValueError("descent_step 和 max_descent 必须为正数")
+
+    if retract_distance is None:
+        retract_distance = descent_step + 1
+
+    initial_pose = dobot.get_pose()
+    current_pose = initial_pose.copy()
+    initial_z = current_pose[2]
+
+    planar_attempts = 0
+    planar_successes = 0
+    contact_events = []
+
+    if verbose:
+        print("\n" + "=" * 60)
+        print("开始力控插入流程 (螺旋微调)")
+        print("=" * 60)
+        print(f"  初始Z: {initial_z:.2f} mm")
+        print(f"  每步下降: {descent_step} mm")
+        print(f"  最大下降: {max_descent} mm")
+        print(f"  力阈值: {force_threshold} N")
+        print(f"  螺旋步长: {spiral_step} mm, 最大半径: {max_spiral_radius} mm")
+
+    while True:
+        current_pose = dobot.get_pose()
+        # 计算当前实际下降距离
+        current_descent = initial_z - current_pose[2]
+        
+        # 检查是否已达到目标深度
+        if current_descent >= max_descent - 1e-2:
+            if verbose:
+                print(f"✅ 已达到目标深度 {max_descent} mm")
+            break
+        
+        # 计算本次下降距离（不超过剩余距离）
+        remaining = max_descent - current_descent
+        step = min(descent_step, remaining)
+        
+        target_pose = current_pose.copy() #! 创建独立副本，不会互相影响
+        target_pose[2] -= step
+        dobot.move_to_pose(
+            target_pose[0], target_pose[1], target_pose[2],
+            target_pose[3], target_pose[4], target_pose[5],
+            speed=int(descent_speed), acceleration=1
+        )
+
+        measured_force = _measure_max_force(
+            dobot,
+            samples=samples_per_check,
+            interval=sample_interval
+        )
+        
+        new_pose = dobot.get_pose()
+        new_descent = initial_z - new_pose[2]
+        
+        if verbose:
+            print(f"[下降] 深度 {new_descent:.2f}/{max_descent:.2f} mm -> 力 {measured_force:.2f} N")
+
+        if measured_force < force_threshold:
+            # 无接触，更新位姿并继续下降
+            # current_pose = target_pose.copy()
+            continue
+
+        # 记录接触事件
+        contact_events.append({
+            'depth': new_descent,
+            'force': measured_force,
+        })
+
+        if verbose:
+            print("  ⚠️ 检测到力反馈，开始XY螺旋微调")
+
+        # 回退到安全高度
+        safe_pose = dobot.get_pose()
+        safe_pose[2] += retract_distance
+        dobot.move_to_pose(
+            safe_pose[0], safe_pose[1], safe_pose[2],
+            safe_pose[3], safe_pose[4], safe_pose[5],
+            speed=int(descent_speed), acceleration=1
+        )
+        safe_pose = dobot.get_pose()
+
+        success, adjusted_pose, attempts = _perform_planar_spiral_search(
+            dobot=dobot,
+            safe_pose=safe_pose,
+            descent_step=descent_step,
+            force_threshold=force_threshold,
+            samples_per_check=samples_per_check,
+            sample_interval=sample_interval,
+            spiral_step=spiral_step,
+            spiral_angle_increment_deg=spiral_angle_increment_deg,
+            max_spiral_radius=max_spiral_radius,
+            planar_speed=planar_speed,
+            descent_speed=descent_speed,
+            verbose=verbose,
+        )
+
+        planar_attempts += attempts
+
+        if not success:
+            final_pose = dobot.get_pose()
+            if verbose:
+                print("  ❌ 微调失败，提前结束插入流程")
+            return {
+                'success': False,
+                'total_descent': initial_z - final_pose[2],
+                'initial_pose': initial_pose,
+                'final_pose': final_pose,
+                'planar_attempts': planar_attempts,
+                'planar_successes': planar_successes,
+                'contact_events': contact_events,
+            }
+
+        planar_successes += 1
+        # 微调成功后，更新当前位姿
+        # current_pose = adjusted_pose.copy()
+        current_pose = dobot.get_pose()
+
+    final_pose = dobot.get_pose()
+    total_descent = initial_z - final_pose[2]
+    success = total_descent >= max_descent - 1e-3
+
+    if verbose:
+        print("\n插入流程结束:")
+        print(f"  成功: {'是' if success else '否'}")
+        print(f"  总下降: {total_descent:.2f} mm (目标: {max_descent} mm)")
+        print(f"  平面微调次数: {planar_attempts} (成功 {planar_successes})")
+        print("=" * 60)
+
+    return {
+        'success': success,
+        'total_descent': total_descent,
+        'initial_pose': initial_pose,
+        'final_pose': final_pose,
+        'planar_attempts': planar_attempts,
+        'planar_successes': planar_successes,
+        'contact_events': contact_events,
     }

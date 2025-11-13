@@ -30,6 +30,7 @@ from calculate_grasp_pose_from_object_pose import (
     adjust_to_vertical_and_lift,
     descend_with_force_feedback,
     calculate_grasppose_from_objectpose_withoutmove,
+    force_guided_spiral_insertion,
 )
 import rospy
 from std_msgs.msg import Float64MultiArray
@@ -70,9 +71,10 @@ def init_robot():
     # force_monitor.start_monitoring()
     # error_monitor = ErrorMonitor(dobot)
     # error_monitor.start_monitoring()
-    gripper = DobotGripper(dobot)
-    gripper.connect(init=True)
-    return dobot, gripper
+    # gripper = DobotGripper(dobot) #notice
+    # gripper.connect(init=True)
+    return dobot
+    # return dobot, gripper #notice
 
 
 # ---------- ROS节点 -------------------------------------------------------
@@ -103,7 +105,8 @@ if __name__ == "__main__":
     
 
     # 初始化机械臂
-    dobot, gripper = init_robot()
+    # dobot, gripper = init_robot() #notice
+    dobot = init_robot()
     #? 初始化ROS订阅者（在后台daemon线程运行，不会阻塞main程序）
     try:
         ros_subscriber = ROSSubscriberTest()
@@ -123,14 +126,14 @@ if __name__ == "__main__":
     # # 创建FoundationPose估计器
     # est = FoundationPose(model_pts=mesh.vertices, model_normals=mesh.vertex_normals, mesh=mesh, scorer=scorer, refiner=refiner, debug_dir=debug_dir, debug=debug, glctx=glctx)
     # logging.info("estimator initialization done")
-    # # 获取相机内参
+    # # 获取相机外参
     # cam_k = np.loadtxt(f'cam_K.txt').reshape(3,3)
 
     # ------交互式选择目标点坐标-------------------------------------------------------
+    #? 相机内参或者调用函数计算转换不对
     # print("\n开始交互式坐标选择...")
     # point_info = camera.get_point_coordinate(window_name="select_target_point")
     
-    # # 初始化变量（避免未定义错误）
     # pixel_coord = None
     # camera_coord = None
     # depth_value = None
@@ -155,44 +158,44 @@ if __name__ == "__main__":
     # input("break000")
 
     #错误: 0.0582, -0.1203, 0.5940
-    target_point_in_camera = np.array([0.11175, 0.14139, 0.59187]) # 相机坐标系下的物体的3D坐标. eg2: x=0.11175, y=-0.14139, z=0.59187.  eg3: 
+    target_point_in_camera = np.array([0.11175, -0.14139, 0.59187]) # 相机坐标系下的物体的3D坐标. eg2: x = 0.11175, y = -0.14139, z = 0.59187.  eg3: 
 
     #-----计算抓取姿态但不抓取-------------------------------------------------------
     #转换为机器人基坐标系
     # 配置抓取参数
-    z_xoy_angle = 0 # 物体绕z轴旋转角度
-    vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
-    grasp_tilt_angle = 30  #  由垂直向下抓取旋转为斜着向下抓取的grasp姿态的旋转角度： 加了30度会朝外旋转
-    z_safe_distance= 30  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
-    T_base_ee_ideal, target_pos_mm, rx, ry, rz = calculate_grasppose_from_objectpose_withoutmove(
-            dobot=dobot,
-            gripper=gripper,
-            T_ee_cam=T_ee_cam,
-            z_xoy_angle=z_xoy_angle,
-            vertical_euler=vertical_euler,
-            grasp_tilt_angle=grasp_tilt_angle,
-            angle_threshold=10.0,
-            T_tcp_ee_z= -0.16, 
-            T_safe_distance= 0.00, #可灵活调整
-            z_safe_distance=z_safe_distance,
-            verbose=True,
-            target_point_camera=target_point_in_camera,)
-    print("target_pos_mm: ", target_pos_mm) #错误eg: [     759.45     -234.16        -391]
+    # z_xoy_angle = 0 # 物体绕z轴旋转角度
+    # vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
+    # grasp_tilt_angle = 30  #  由垂直向下抓取旋转为斜着向下抓取的grasp姿态的旋转角度： 加了30度会朝外旋转
+    # z_safe_distance= 30  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
+    # T_base_ee_ideal, target_pos_mm, rx, ry, rz = calculate_grasppose_from_objectpose_withoutmove(
+    #         dobot=dobot,
+    #         gripper=gripper,
+    #         T_ee_cam=T_ee_cam,
+    #         z_xoy_angle=z_xoy_angle,
+    #         vertical_euler=vertical_euler,
+    #         grasp_tilt_angle=grasp_tilt_angle,
+    #         angle_threshold=10.0,
+    #         T_tcp_ee_z= -0.16, 
+    #         T_safe_distance= 0.00, 
+    #         z_safe_distance=z_safe_distance,
+    #         verbose=True,
+    #         target_point_camera=target_point_in_camera,)
+    # print("target_pos_mm: ", target_pos_mm) #错误eg: [     759.45     -234.16        -391]
     #eg2: 
 
     
     # ------直接移动到玻璃棒上方抓取，直接给坐标值-------------------------------------------------------
-    dobot.move_to_pose(585, -220, 79, rx, ry, rz, speed=13, acceleration=1) 
-    wait_move = rospy.Rate(1/2)
-    wait_move.sleep()
-    gripper.control(position=17, force=12, speed=27)
-    wait_grasp = rospy.Rate(1/5)
-    wait_grasp.sleep()
+    # dobot.move_to_pose(585, -220, 72, rx, ry, rz, speed=13, acceleration=1) 
+    # wait_move = rospy.Rate(1/2)
+    # wait_move.sleep()
+    # gripper.control(position=13, force=12, speed=27)
+    # wait_grasp = rospy.Rate(1/5)
+    # wait_grasp.sleep()
 
-    pose_now = dobot.get_pose()
-    x_adjustment = 42
-    z_adjustment = 60
-    dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=9)
+    # pose_now = dobot.get_pose()
+    # x_adjustment = 42
+    # z_adjustment = 60
+    # dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=9)
     
 
 
@@ -328,62 +331,62 @@ if __name__ == "__main__":
 
 
 
-    wait1 = rospy.Rate(1.0 / 6.0)
-    wait1.sleep()
-#-------检测玻璃棒方向-------------------------------------------------------
-    #mark: 循环获取ROS原始图像并检测方向，直到检测成功
-    print("开始检测玻璃棒方向...")
+#     wait1 = rospy.Rate(1.0 / 5.0)
+#     wait1.sleep()
+# #-------检测玻璃棒方向-------------------------------------------------------
+#     #mark: 循环获取ROS原始图像并检测方向，直到检测成功
+#     print("开始检测玻璃棒方向...")
 
-    detected_angles = None
-    avg_angle = 0.0
-    detection_attempts = 0
+#     detected_angles = None
+#     avg_angle = 0.0
+#     detection_attempts = 0
     
-    while True:
-        detection_attempts += 1
-        # 获取ROS原始图像数据
-        raw_image, img_timestamp = ros_subscriber.get_latest_raw_image()
-        has_new_image = raw_image is not None
-        if has_new_image:
-            # 收到新图像，进行方向检测
-            print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
-            detected_angles, avg_angle = detect_dent_orientation(raw_image, save_dir=save_dir)
+#     while True:
+#         detection_attempts += 1
+#         # 获取ROS原始图像数据
+#         raw_image, img_timestamp = ros_subscriber.get_latest_raw_image()
+#         has_new_image = raw_image is not None
+#         if has_new_image:
+#             # 收到新图像，进行方向检测
+#             print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
+#             detected_angles, avg_angle = detect_dent_orientation(raw_image, save_dir=save_dir)
             
-            if detected_angles:
-                last_valid_detected_angles = detected_angles
-                last_valid_avg_angle = avg_angle
-                last_seen_img_ts = img_timestamp
-                print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°")
-                print("="*60)
-                break  
-            else:
-                print("当前图像未检测到明显方向特征，继续等待...")
-                time.sleep(0.1)  
-        else:
-            print(f"第{detection_attempts}次尝试: 等待图像数据...")
-            time.sleep(0.1)  
+#             if detected_angles:
+#                 last_valid_detected_angles = detected_angles
+#                 last_valid_avg_angle = avg_angle
+#                 last_seen_img_ts = img_timestamp
+#                 print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°")
+#                 print("="*60)
+#                 break  
+#             else:
+#                 print("当前图像未检测到明显方向特征，继续等待...")
+#                 time.sleep(0.1)  
+#         else:
+#             print(f"第{detection_attempts}次尝试: 等待图像数据...")
+#             time.sleep(0.1)  
         
-        # 可选：最大尝试次数限制
-        if detection_attempts >= 100:
-            print(" 警告: 达到最大尝试次数(100次)，使用默认角度")
-            detected_angles = []
-            avg_angle = 0.0
-            break
+#         # 可选：最大尝试次数限制
+#         if detection_attempts >= 100:
+#             print(" 警告: 达到最大尝试次数(100次)，使用默认角度")
+#             detected_angles = []
+#             avg_angle = 0.0
+#             break
 
 
 
 #-----------开始调整玻璃棒姿态-------------------------------------------------------
-    # 调用封装函数：调整姿态至垂直并抬升
-    adjust_result = adjust_to_vertical_and_lift(
-        dobot=dobot,
-        avg_angle=avg_angle, # 检测到的玻璃棒当前倾斜角度（度）
-        grasp_tilt_angle=grasp_tilt_angle,
-        x_adjustment = 0,
-        z_adjustment = 0,
-        verbose=True
-    )
+    # # 调用封装函数：调整姿态至垂直并抬升
+    # adjust_result = adjust_to_vertical_and_lift(
+    #     dobot=dobot,
+    #     avg_angle=avg_angle, # 检测到的玻璃棒当前倾斜角度（度）
+    #     grasp_tilt_angle=grasp_tilt_angle,
+    #     x_adjustment = 0,
+    #     z_adjustment = 0,
+    #     verbose=True
+    # )
 
-    wait_rate = rospy.Rate(1.0 / 3.0)  
-    wait_rate.sleep()
+    # wait_rate = rospy.Rate(1.0 / 5.0)  
+    # wait_rate.sleep()
     
 
 
@@ -391,9 +394,35 @@ if __name__ == "__main__":
 
     #移动到目标位置
     pose_now = dobot.get_pose()
-    z_safe_adjustment = 200
+    x_safe_adjustment = -52
+    y_safe_adjustment = 30
+    z_safe_adjustment = -50
+    pos_now = [578, -20, 68.7, -133.37, 0, -90]
     #target_pos_mm
-    # dobot.move_to_pose(target_pos_mm[0], target_pos_mm[1], target_pos_mm[2]+z_safe_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=9)
+    dobot.move_to_pose(pos_now[0], pose_now[1], pos_now[2], pose_now[3], pose_now[4], pose_now[5], speed=9)
+
+    wait_nearby = rospy.Rate(1.0 / 3.0)  
+    wait_nearby.sleep()
+
+
+#-------通过力控下降并在XY平面执行螺旋微调，尝试插入hole-------------------------------------------------------
+    insertion_result = force_guided_spiral_insertion(
+        dobot=dobot,
+        descent_step=1.0,
+        max_descent=20.0,
+        force_threshold=1.5,
+        samples_per_check=6,
+        sample_interval=0.03,
+        retract_distance=3.0,
+        spiral_step=0.5,
+        spiral_angle_increment_deg=20.0,
+        max_spiral_radius=5.0,
+        planar_speed=4.0,
+        descent_speed=3.0,
+        verbose=True,
+    )
+
+    print("螺旋插入结果:", insertion_result)
 
     # # 调用封装函数：垂直下降并检测力反馈
     # descend_result = descend_with_force_feedback(

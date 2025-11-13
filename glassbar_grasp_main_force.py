@@ -102,7 +102,6 @@ if __name__ == "__main__":
     mesh = trimesh.load(mesh_file)
     #? openscad的单位是mm， 但是转为obj文件后单位又变成m，所以还是需要转换！
     mesh.vertices /= 1000 #! 单位转换除以1000
-    mesh.vertices *= 2
     # mesh.vertices /= 3
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
@@ -164,10 +163,10 @@ if __name__ == "__main__":
             # 每隔30帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
                 #使用GroundingDINO进行语义理解找到物体的粗略位置，SAM获取物体的相对精确掩码
-                # mask = get_mask_from_GD(color, "red stirring rod")
+                mask = get_mask_from_GD(color, "red stirring rod")
                 # mask = get_mask_from_GD(color, "Plastic dropper") 
                 # mask = get_mask_from_GD(color, "yellow stirring rod")
-                mask = get_mask_from_GD(color, "yellow cuboid")
+                # mask = get_mask_from_GD(color, "yellow cuboid")
                 # mask = get_mask_from_GD(color, "long red bar")
                 # print("mask_shape: ", mask.shape)
             
