@@ -1535,12 +1535,12 @@ def _perform_planar_spiral_search(
     ):
         attempts += 1
         # 以initial_pose的XY为原点，叠加螺旋偏移
-        target_pose = initial_pose.copy()
+        current_pose = dobot.get_pose()
+        target_pose = current_pose.copy()
         target_pose[0] += dx  # X偏移
         target_pose[1] += dy  # Y偏移
-        target_pose[2] = current_z  # 保持在安全高度
         
-        # 移动到螺旋点（水平移动）
+        # 移动到螺旋点（水平移动）， target_pose[2]保持不变，暂时不下降
         dobot.move_to_pose(
             target_pose[0], target_pose[1], target_pose[2],
             target_pose[3], target_pose[4], target_pose[5],
@@ -1736,8 +1736,7 @@ def force_guided_spiral_insertion(
 
         if not success:
             final_pose = dobot.get_pose()
-            if verbose:
-                print("  ❌ 微调失败，提前结束插入流程")
+            print("  ❌ 微调失败，提前结束插入流程")
             return {
                 'success': False,
                 'total_descent': initial_z - final_pose[2],
@@ -1752,6 +1751,7 @@ def force_guided_spiral_insertion(
         # 微调成功后，更新当前位姿
         # current_pose = adjusted_pose.copy()
         current_pose = dobot.get_pose()
+        #? 微调成功后为什么不退出循环?
 
     final_pose = dobot.get_pose()
     total_descent = initial_z - final_pose[2]
