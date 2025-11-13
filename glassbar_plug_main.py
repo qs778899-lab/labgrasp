@@ -83,6 +83,9 @@ def init_robot():
 
 
 if __name__ == "__main__":
+    # 初始化ROS节点（使用anonymous=True避免节点名冲突）
+    rospy.init_node('glassbar_plug_main', anonymous=True)
+    
     # 创建带时间戳的保存目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_dir = os.path.join("record_images_during_grasp", timestamp)
@@ -107,17 +110,18 @@ if __name__ == "__main__":
     # 初始化机械臂
     # dobot, gripper = init_robot() #notice
     dobot = init_robot()
-    #? 初始化ROS订阅者（在后台daemon线程运行，不会阻塞main程序）
-    try:
-        ros_subscriber = ROSSubscriberTest()
-        ros_thread = threading.Thread(target=ros_subscriber.run, daemon=True)
-        ros_thread.start()
-        print("✅ ROS订阅者已在后台启动（非阻塞模式）")
-        time.sleep(1)  # 短暂等待ROS节点启动
-    except Exception as e:
-        print(f"⚠️  ROS订阅者启动失败: {e}")
-        # 使用ros_utils中的DummySubscriber作为占位对象，防止后续代码出错
-        ros_subscriber = DummySubscriber()
+    #notice
+    # #? 初始化ROS订阅者（在后台daemon线程运行，不会阻塞main程序）
+    # try:
+    #     ros_subscriber = ROSSubscriberTest()
+    #     ros_thread = threading.Thread(target=ros_subscriber.run, daemon=True)
+    #     ros_thread.start()
+    #     print("✅ ROS订阅者已在后台启动（非阻塞模式）")
+    #     time.sleep(1)  # 短暂等待ROS节点启动
+    # except Exception as e:
+    #     print(f"⚠️  ROS订阅者启动失败: {e}")
+    #     # 使用ros_utils中的DummySubscriber作为占位对象，防止后续代码出错
+    #     ros_subscriber = DummySubscriber()
 
     # 初始化评分器和姿态优化器
     # scorer = ScorePredictor() 
@@ -131,29 +135,29 @@ if __name__ == "__main__":
 
     # ------交互式选择目标点坐标-------------------------------------------------------
     #? 相机内参或者调用函数计算转换不对
-    # print("\n开始交互式坐标选择...")
-    # point_info = camera.get_point_coordinate(window_name="select_target_point")
+    print("\n开始交互式坐标选择...")
+    point_info = camera.get_point_coordinate(window_name="select_target_point")
     
-    # pixel_coord = None
-    # camera_coord = None
-    # depth_value = None
-    # target_point = None
-    # target_point_in_camera = None
+    pixel_coord = None
+    camera_coord = None
+    depth_value = None
+    target_point = None
+    target_point_in_camera = None
     
-    # if point_info is not None:
-    #     pixel_coord = point_info['pixel']
-    #     camera_coord = point_info['camera_coord']
-    #     depth_value = point_info['depth']
+    if point_info is not None:
+        pixel_coord = point_info['pixel']
+        camera_coord = point_info['camera_coord']
+        depth_value = point_info['depth']
         
-    #     print(f"\n获取到的目标点信息:")
-    #     # print(f"  像素坐标: {pixel_coord}")
-    #     print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (0.0582, -0.1203, 0.5940) m
-    #     print(f"  深度值: {depth_value:.4f} m\n")
-    #     # 转换为numpy数组
-    #     target_point_in_camera = np.array([camera_coord[0], camera_coord[1], camera_coord[2]])  # 相机坐标系下的3D坐标
+        print(f"\n获取到的目标点信息:")
+        # print(f"  像素坐标: {pixel_coord}")
+        print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (0.0582, -0.1203, 0.5940) m
+        print(f"  深度值: {depth_value:.4f} m\n")
+        # 转换为numpy数组
+        target_point_in_camera = np.array([camera_coord[0], camera_coord[1], camera_coord[2]])  # 相机坐标系下的3D坐标
         
-    # else:
-    #     print("未选择目标点，跳过该步骤继续...\n")
+    else:
+        print("未选择目标点，跳过该步骤继续...\n")
 
     # input("break000")
 
@@ -423,3 +427,5 @@ if __name__ == "__main__":
     # )
 
 
+#if __name__ == "__main__":
+#!  main() 封装进去
