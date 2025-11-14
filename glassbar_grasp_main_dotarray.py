@@ -418,7 +418,7 @@ if __name__ == "__main__":
     )
     
     pose_now = dobot.get_pose()
-    x_adjustment = 0
+    x_adjustment = 10
     z_adjustment = 50
     dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=7, acceleration=1) 
 

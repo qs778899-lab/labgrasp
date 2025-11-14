@@ -24,17 +24,10 @@ from scipy.spatial.transform import Rotation as R
 import queue
 from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
-from calculate_grasp_pose_from_object_pose import (
-    execute_grasp_from_object_pose, 
-    detect_dent_orientation,
-    adjust_to_vertical_and_lift,
-    descend_with_force_feedback
-)
+from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
+from camera_reader import CameraReader
 import rospy
 from std_msgs.msg import Float64MultiArray
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-from ros_utils import ROSSubscriberTest, DummySubscriber
 
 
 
@@ -74,9 +67,69 @@ def init_robot():
     return dobot, gripper
 
 
-# ---------- ROS节点 -------------------------------------------------------
-# ROSSubscriberTest类已移至ros_utils.py模块中
-# 使用方法: from ros_utils import ROSSubscriberTest, DummySubscriber
+# ---------- ROS节点 ----------
+class ROSSubscriberTest:
+    def __init__(self):
+        """初始化ROS节点和订阅者"""
+        rospy.init_node('ros_subscriber_test', anonymous=True)  ##ros node name 只是告诉 ROS：“我这个节点叫什么”，与任何话题名或函数名没有直接绑定关系；保持唯一性即可。
+
+        # 缓存最新的tracking_data
+        self.latest_tracking_data = {
+            'angle_z_deg': 0.0,
+            'b': 0.0,
+            'x': 0.0,
+            'y': 0.0,
+            'timestamp': 0.0,
+            'valid': False
+        }
+        self.data_lock = threading.Lock()
+
+        # 订阅tracking_data topic
+        self.tracking_sub = rospy.Subscriber(
+            'tracking_data', #topic name: tracking_data
+            Float64MultiArray,
+            self.tracking_callback #mark: callback_function
+        )
+
+        print("ROS订阅者已启动，等待跟踪数据...")
+
+    def tracking_callback(self, msg):
+        """处理tracking_data消息"""
+        if len(msg.data) >= 4:
+            angle_z_deg = msg.data[0]
+            b = msg.data[1] 
+            x = msg.data[2]
+            y = msg.data[3]
+
+            with self.data_lock:
+                self.latest_tracking_data.update({
+                    'angle_z_deg': angle_z_deg,
+                    'b': b,
+                    'x': x,
+                    'y': y,
+                    'timestamp': time.time(),
+                    'valid': True
+                })
+            
+            # print(f"📊 跟踪数据: 角度={angle_z_deg:.2f}°, 截距={b:.6f}, 位置=({x:.6f}, {y:.6f})")
+        else:
+            pass
+            # print(f"⚠️  跟踪数据格式错误，期望4个值，实际收到{len(msg.data)}个值")
+
+    #mark: 在callback_function基础上，访问缓存的最新数据
+    def get_latest_tracking_data(self):
+        """获取最新的跟踪数据（线程安全）"""
+        with self.data_lock:
+            return self.latest_tracking_data.copy()
+    
+    def run(self):
+        """运行订阅者"""
+        try:
+            # 非阻塞保活循环：等待ROS事件，但不主动退出
+            while not rospy.is_shutdown():
+                time.sleep(0.05)
+        except KeyboardInterrupt:
+            print("\n ros中断,正在退出...")
 
 
 if __name__ == "__main__":
@@ -92,7 +145,9 @@ if __name__ == "__main__":
         f.write("frame,timestamp,angle_z_deg,detected_angles,avg_angle\n")
     # print(f"角度数据将保存到: {angle_log_path}")
     
-    camera = CreateRealsense("231522072272") 
+    camera = CreateRealsense("231522072272")                      #? 怎么检查没有反？
+    angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的), YIMU ID = .
+    contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）， YIMU ID = 6.
     # mesh_file = "mesh/cube.obj"
     mesh_file = "mesh/thin_cube.obj"
     debug = 0
@@ -118,7 +173,10 @@ if __name__ == "__main__":
         time.sleep(1)  # 短暂等待ROS节点启动
     except Exception as e:
         print(f"⚠️  ROS订阅者启动失败: {e}")
-        # 使用ros_utils中的DummySubscriber作为占位对象，防止后续代码出错
+        # 创建一个空的占位对象，防止后续代码出错
+        class DummySubscriber:
+            def get_latest_tracking_data(self):
+                return {'valid': False, 'angle_z_deg': 0.0, 'b': 0.0, 'x': 0.0, 'y': 0.0, 'timestamp': 0.0}
         ros_subscriber = DummySubscriber()
 
     # 初始化评分器和姿态优化器
@@ -165,8 +223,7 @@ if __name__ == "__main__":
                 #使用GroundingDINO进行语义理解找到物体的粗略位置，SAM获取物体的相对精确掩码
                 mask = get_mask_from_GD(color, "red stirring rod")
                 # mask = get_mask_from_GD(color, "Plastic dropper") 
-                # mask = get_mask_from_GD(color, "yellow stirring rod")
-                # mask = get_mask_from_GD(color, "yellow cuboid")
+                # mask = get_mask_from_GD(color, "long yellow bar")
                 # mask = get_mask_from_GD(color, "long red bar")
                 # print("mask_shape: ", mask.shape)
             
@@ -187,7 +244,8 @@ if __name__ == "__main__":
                 # cv2.waitKey(0) #waitKey(0) 是一种阻塞
                 # input("break001") #input也是一种阻塞
                 # print("break001")
-    
+                
+                #? 清理内存 (这个有用吗？)
                 torch.cuda.empty_cache()
                 gc.collect()
  
@@ -196,9 +254,12 @@ if __name__ == "__main__":
                 # 使用上一次检测的结果
                 center_pose = last_valid_pose
                 # print(f"第{frame_count}帧使用上次检测结果")
+            
 
-            print("In camera coordinates, center_pose_object: ", center_pose)  #eg:  x=0.11175, y=-0.14139, z=0.59187
+            print("center_pose_object: ", center_pose) 
+            
             frame_count += 1
+
             if center_pose is not None:
                 break
 
@@ -238,10 +299,11 @@ if __name__ == "__main__":
             angle_z_deg = -45  # 朝里
             print("从未接收到ROS数据，使用默认角度: -45°")
 
+
     # 将center_pose转换为numpy数组
     center_pose_array = np.array(center_pose, dtype=float)
     
-# -------执行抓取-------------------------------------------------------
+    # ------使用封装函数执行抓取------
     # 配置抓取参数
     z_xoy_angle = 0 # 物体绕z轴旋转角度
     vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
@@ -261,54 +323,56 @@ if __name__ == "__main__":
         T_tcp_ee_z= -0.16, 
         T_safe_distance= 0.00, #可灵活调整
         z_safe_distance=z_safe_distance,
-        gripper_close_pos=12,
+        gripper_close_pos=15,
         verbose=True
     )
     
     pose_now = dobot.get_pose()
-    x_adjustment = 115
-    z_adjustment = 180
+    x_adjustment = 10
+    z_adjustment = 50
     dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1], pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=7, acceleration=1) 
 
 
-#-------检测玻璃棒方向-------------------------------------------------------
-    #mark: 循环获取ROS原始图像并检测方向，直到检测成功
-    print("开始检测玻璃棒方向...")
-
+#-----------开始检测玻璃棒方向-------------------------------------------------------
+    print("\n" + "="*60)
+    print("🔍 开始检测玻璃棒方向...")
+    print("="*60)
+    
     detected_angles = None
     avg_angle = 0.0
     detection_attempts = 0
     
     while True:
         detection_attempts += 1
-        # 获取ROS原始图像数据
-        raw_image, img_timestamp = ros_subscriber.get_latest_raw_image()
-        has_new_image = raw_image is not None
-        if has_new_image:
-            # 收到新图像，进行方向检测
-            print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
-            detected_angles, avg_angle = detect_dent_orientation(raw_image, save_dir=save_dir)
-            
-            if detected_angles:
-                last_valid_detected_angles = detected_angles
-                last_valid_avg_angle = avg_angle
-                last_seen_img_ts = img_timestamp
-                print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°")
-                print("="*60)
-                break  
-            else:
-                print("当前图像未检测到明显方向特征，继续等待...")
-                time.sleep(0.1)  
+
+        raw_image = angle_camera.get_current_frame()
+        if raw_image is None:
+            print(f"第{detection_attempts}次尝试: 等待相机数据...")
+            time.sleep(0.1)
+            continue
+        img_timestamp = time.time()
+
+        print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
+        detected_angles, avg_angle = detect_dent_orientation(raw_image, save_dir=save_dir)
+
+        if detected_angles:
+            last_valid_detected_angles = detected_angles
+            last_valid_avg_angle = avg_angle
+            last_seen_img_ts = img_timestamp
+            print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°")
+            print("="*60)
+            break
         else:
-            print(f"第{detection_attempts}次尝试: 等待图像数据...")
-            time.sleep(0.1)  
-        
+            print("当前图像未检测到明显方向特征，继续等待...")
+            time.sleep(0.1)
+
         # 可选：最大尝试次数限制
         if detection_attempts >= 100:
             print(" 警告: 达到最大尝试次数(100次)，使用默认角度")
             detected_angles = []
             avg_angle = 0.0
             break
+
     # 记录angle_z_deg 和 detected_angles到log文件
     with open(angle_log_path, 'a') as f:
         angles_str = str(detected_angles) if detected_angles is not None else "None"
@@ -317,33 +381,111 @@ if __name__ == "__main__":
 
 
 #-----------开始调整玻璃棒姿态-------------------------------------------------------
-    # 调用封装函数：调整姿态至垂直并抬升
-    adjust_result = adjust_to_vertical_and_lift(
-        dobot=dobot,
-        avg_angle=avg_angle, # 检测到的玻璃棒当前倾斜角度（度）
-        grasp_tilt_angle=grasp_tilt_angle,
-        verbose=True
-    )
 
-    wait_rate = rospy.Rate(1.0 / 10.0)  
+    print("开始调整玻璃棒姿态至垂直桌面向下")
+    pose_now = dobot.get_pose()
+    delta_ee = avg_angle - grasp_tilt_angle
+    #需要让tcp朝外旋转； grasp_tilt_angle为正值时，tcp会朝外旋转。
+    pose_target = [pose_now[0]+15, pose_now[1], pose_now[2], pose_now[3]+delta_ee, pose_now[4], pose_now[5]]
+    dobot.move_to_pose(pose_target[0], pose_target[1], pose_target[2], pose_target[3], pose_target[4], pose_target[5], speed=12, acceleration=1)
+    
+
+    wait_rate = rospy.Rate(1.0 / 12.0)  
     wait_rate.sleep()
     
-    # 调用封装函数：垂直下降并检测力反馈
-    descend_result = descend_with_force_feedback(
-        dobot=dobot,
-        move_step=1,
-        max_steps=700,
-        force_threshold=1.5,
-        verbose=True
-    )
-
-    #移动到目标位置
-    pose_now = dobot.get_pose()
-    x_target, y_target, z_target= 450, -150, 12
-    rx_target, ry_target, rz_target= pose_now[3], pose_now[4], pose_now[5]
-    # dobot.move_to_pose(x_target, y_target, z_target, rx_target, ry_target, rz_target, speed=9)
+    # 验证是否到达目标位置
+    pose_after_adjust = dobot.get_pose()
+    print(f"检查姿态调整是否完成: Rx={pose_after_adjust[3]:.2f}° (目标: {pose_target[3]:.2f}°)")
 
 
+
+#-----------开始检测玻璃棒是否触碰到桌面-------------------------------------------------------
+    print("\n开始监测玻璃棒与桌面接触...")
+
+    gray_debug_dir = os.path.join(save_dir, "gray_images_debug")
+    os.makedirs(gray_debug_dir, exist_ok=True)
+    print(f"灰度图将保存到: {gray_debug_dir}")
+
+    sample_interval = 0.1  # 秒
+    move_step = 3          # mm
+    max_steps = 700
+    change_threshold = 3 #0.06% 变化灵敏度 
+
+    rate = rospy.Rate(1.0 / sample_interval)
+    rate.sleep()
+    # rospy.sleep(sample_interval)
+    frame_before = None
+    while frame_before is None:
+        initial_frame = contact_camera.get_current_frame()
+        if initial_frame is not None:
+            frame_before = initial_frame
+        else:
+            print("等待初始图像...")
+            rospy.sleep(sample_interval)
+
+    print("已获取初始图像")
+    pose_current = dobot.get_pose()
+
+    for step in range(max_steps):
+        wait = rospy.Rate(33)  
+        wait.sleep()
+        # 动作前帧
+        frame_data_before = contact_camera.get_current_frame()
+        if frame_data_before is None:
+            print(f"  步骤 {step+1}: 等待动作前图像...")
+            rospy.sleep(sample_interval)
+            continue
+        frame_before = frame_data_before
+
+        # 向下移动一小步
+        pose_current[2] -= move_step
+        dobot.move_to_pose(
+            pose_current[0], pose_current[1], pose_current[2],
+            pose_current[3], pose_current[4], pose_current[5],
+            speed=5, acceleration=1
+        )
+
+        # 等待并抓取动作后的新帧
+        frame_after = None
+        has_change = False
+        #连续高频采样检测
+        for _ in range(20): #0.1*20 = 2s
+            rate.sleep()
+            candidate_frame = contact_camera.get_current_frame()
+            if candidate_frame is not None:
+                frame_after = candidate_frame
+
+                has_change = contact_camera.has_significant_change(
+                    frame_before, frame_after,
+                    change_threshold=change_threshold,
+                    pixel_threshold=2,
+                    min_area=2,
+                    save_dir=gray_debug_dir,
+                    step_num=step
+                )
+
+                if has_change:
+                    break
+            
+                # break
+
+        if frame_after is None:
+            print(f"  步骤 {step+1}: 未收到新图像，继续等待...")
+            continue
+
+
+        if has_change:
+            print(f"检测到显著变化！玻璃棒可能已接触桌面 (步数: {step+1}, 下降: {(step+1)*move_step}mm)")
+            break
+
+        print(f"  步骤 {step+1}/{max_steps}: 未检测到接触，继续下降...")
+    else:
+        print("达到垂直向下最大移动距离，未检测到明显变化")
+
+    print("玻璃棒下降检测完成\n")
+
+        
     # 可选：返回home位置（根据需要取消注释）
     # dobot.move_to_pose(435.4503, 281.809, 348.9125, -179.789, -0.8424, 14.4524, speed=9)
+
 
