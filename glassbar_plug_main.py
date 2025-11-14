@@ -135,29 +135,29 @@ if __name__ == "__main__":
 
     # ------交互式选择目标点坐标-------------------------------------------------------
     #? 相机内参或者调用函数计算转换不对
-    print("\n开始交互式坐标选择...")
-    point_info = camera.get_point_coordinate(window_name="select_target_point")
+    # print("\n开始交互式坐标选择...")
+    # point_info = camera.get_point_coordinate(window_name="select_target_point")
     
-    pixel_coord = None
-    camera_coord = None
-    depth_value = None
-    target_point = None
-    target_point_in_camera = None
+    # pixel_coord = None
+    # camera_coord = None
+    # depth_value = None
+    # target_point = None
+    # target_point_in_camera = None
     
-    if point_info is not None:
-        pixel_coord = point_info['pixel']
-        camera_coord = point_info['camera_coord']
-        depth_value = point_info['depth']
+    # if point_info is not None:
+    #     pixel_coord = point_info['pixel']
+    #     camera_coord = point_info['camera_coord']
+    #     depth_value = point_info['depth']
         
-        print(f"\n获取到的目标点信息:")
-        # print(f"  像素坐标: {pixel_coord}")
-        print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (0.0582, -0.1203, 0.5940) m
-        print(f"  深度值: {depth_value:.4f} m\n")
-        # 转换为numpy数组
-        target_point_in_camera = np.array([camera_coord[0], camera_coord[1], camera_coord[2]])  # 相机坐标系下的3D坐标
+    #     print(f"\n获取到的目标点信息:")
+    #     # print(f"  像素坐标: {pixel_coord}")
+    #     print(f"  相机坐标系 (X, Y, Z): ({camera_coord[0]:.4f}, {camera_coord[1]:.4f}, {camera_coord[2]:.4f}) m") # (X, Y, Z): (0.0582, -0.1203, 0.5940) m
+    #     print(f"  深度值: {depth_value:.4f} m\n")
+    #     # 转换为numpy数组
+    #     target_point_in_camera = np.array([camera_coord[0], camera_coord[1], camera_coord[2]])  # 相机坐标系下的3D坐标
         
-    else:
-        print("未选择目标点，跳过该步骤继续...\n")
+    # else:
+    #     print("未选择目标点，跳过该步骤继续...\n")
 
     # input("break000")
 
@@ -401,11 +401,11 @@ if __name__ == "__main__":
     x_safe_adjustment = -52
     y_safe_adjustment = 30
     z_safe_adjustment = -50
-    pos_now = [578, -20, 68.7, -133.37, 0, -90]
+    pose_now = [586, -22, 68, -133.37, 0, -90]
     #target_pos_mm
-    dobot.move_to_pose(pos_now[0], pose_now[1], pos_now[2], pose_now[3], pose_now[4], pose_now[5], speed=9)
+    dobot.move_to_pose(pose_now[0], pose_now[1], pose_now[2], pose_now[3], pose_now[4], pose_now[5], speed=9)
 
-    wait_nearby = rospy.Rate(1.0 / 3.0)  
+    wait_nearby = rospy.Rate(1.0 / 3.5)  
     wait_nearby.sleep()
 
 

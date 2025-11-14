@@ -1480,13 +1480,18 @@ def _measure_max_force(dobot, samples=5, interval=0.02):
     return max_force
 
 
-def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0):
+def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0, skip_count=0):
     """
     生成阿基米德螺旋线上的偏移点 (mm)
-    step: 螺旋线两圈之间的径向间距 (mm).代表螺旋线的"紧密度"
-    max_radius: 螺旋搜索的最大半径 (mm)，超过则停止生成
-    angle_increment_deg: 螺旋采样的角度增量 (度)
     
+    Args:
+        step: 螺旋线两圈之间的径向间距 (mm).代表螺旋线的"紧密度"
+        max_radius: 螺旋搜索的最大半径 (mm)，超过则停止生成
+        angle_increment_deg: 螺旋采样的角度增量 (度)
+        skip_count: 跳过前 N 个点（用于继续之前的搜索，避免重复）
+    
+    Yields:
+        (dx, dy): 相对于原点的偏移坐标 (mm)
     """
     if step <= 0 or max_radius <= 0:
         return
@@ -1495,11 +1500,18 @@ def _generate_spiral_offsets(step, max_radius, angle_increment_deg=20.0):
         angle_increment = math.radians(10.0)
     b = step / (2.0 * math.pi)  # 每转一圈半径增加 step
     angle = angle_increment
+    
+    point_index = 0
     while True:
         radius = b * angle
         if radius > max_radius:
             break
-        yield radius * math.cos(angle), radius * math.sin(angle)
+        
+        # 如果当前点索引 >= skip_count，才yield这个点
+        if point_index >= skip_count:
+            yield radius * math.cos(angle), radius * math.sin(angle)
+        
+        point_index += 1
         angle += angle_increment
 
 
@@ -1516,10 +1528,19 @@ def _perform_planar_spiral_search(
     max_spiral_radius,
     planar_speed,
     descent_speed,
+    skip_count,
     verbose,
 ):
-    """    
+    """
+    在以initial_pose为中心的平面上进行螺旋搜索，寻找低阻力插入点
+    
     螺旋线以initial_pose的(x,y)为原点，在每个螺旋点上尝试下降并测力
+    
+    Args:
+        skip_count: 跳过前 N 个螺旋点（用于继续之前的搜索）
+    
+    Returns:
+        (success, attempts): 是否成功, 本次尝试的螺旋点数
     """
     attempts = 0
     last_pose = initial_pose.copy()
@@ -1527,11 +1548,25 @@ def _perform_planar_spiral_search(
     # 获取当前安全高度（用于螺旋搜索时保持Z高度）
     current_z = initial_pose[2]
     
+    if verbose:
+        print(f"[螺旋搜索]从第 {skip_count + 1} 个点开始搜索...")
+    
     for dx, dy in _generate_spiral_offsets(
         step=spiral_step,
         max_radius=max_spiral_radius,
         angle_increment_deg=spiral_angle_increment_deg,
+        skip_count=skip_count,
     ):
+
+        measured_force = _measure_max_force(
+            dobot,
+            samples=samples_per_check,
+            interval=sample_interval
+        )
+        if verbose:
+            print(f" [微调前] 接触力 {measured_force:.2f}N")
+
+
         attempts += 1
         # 以initial_pose的XY为原点，叠加螺旋偏移
         current_pose = dobot.get_pose()
@@ -1545,6 +1580,8 @@ def _perform_planar_spiral_search(
             target_pose[3], target_pose[4], target_pose[5],
             speed=int(planar_speed), acceleration=1
         )
+        wait_planar = rospy.Rate(1/0.4)
+        wait_planar.sleep()
         last_pose = dobot.get_pose()
 
         # 在该点尝试下降
@@ -1555,6 +1592,8 @@ def _perform_planar_spiral_search(
             probe_pose[3], probe_pose[4], probe_pose[5],
             speed=int(descent_speed), acceleration=1
         )
+        wait_down = rospy.Rate(1/0.4)
+        wait_down.sleep()
 
         # 测量接触力
         measured_force = _measure_max_force(
@@ -1568,7 +1607,7 @@ def _perform_planar_spiral_search(
         if measured_force < force_threshold:
             if verbose:
                 print("    ✅ 发现低力路径，继续下降")
-            return True, dobot.get_pose(), attempts
+            return True, attempts
 
         # 未找到合适点，恢复到安全高度继续下一次尝试
         recovery_pose = target_pose.copy()  # 回到螺旋点的安全高度
@@ -1578,23 +1617,26 @@ def _perform_planar_spiral_search(
             speed=int(descent_speed), acceleration=1
         )
         last_pose = dobot.get_pose()
+        wait_back = rospy.Rate(1/0.8)
+        wait_back.sleep()
 
     if verbose:
         print(" ❌在设定的螺旋线范围内未找到合适入口")
-    return False, last_pose, attempts
+    return False, attempts
 
 # 下降和回退距离不一样
 # 发现
+# 棒子可能会在夹爪上滑动，所以回退距离可能会不够导致无法完全回退到安全高度
 
 def force_guided_spiral_insertion(
     dobot,
     descent_step=1.0,
-    retract_distance=3.0,
-    max_descent=25.0,
-    force_threshold=1.6,
+    retract_distance=4.0,
+    max_descent=37.0,
+    force_threshold=2,
     samples_per_check=6,
     sample_interval=0.03,
-    spiral_step=1,
+    spiral_step=1.1,
     spiral_angle_increment_deg=20.0,
     max_spiral_radius=60.0,
     planar_speed=1.0,
@@ -1641,6 +1683,7 @@ def force_guided_spiral_insertion(
     planar_attempts = 0
     planar_successes = 0
     contact_events = []
+    cumulative_spiral_points = 0  # 累计已尝试的螺旋点总数
 
     if verbose:
         print("\n" + "=" * 60)
@@ -1700,7 +1743,9 @@ def force_guided_spiral_insertion(
         })
 
         if verbose:
-            print(" ⚠️ 检测到力反馈，开始XY螺旋微调")
+            print(" ⚠️ 检测到力反馈，开始XY螺旋微调。")
+            print(f"回退前, dobot pose: {dobot.get_pose()}, dobot z: {dobot.get_pose()[2]}")
+    
 
         # 回退到安全高度
         safe_pose = dobot.get_pose()
@@ -1710,14 +1755,17 @@ def force_guided_spiral_insertion(
             safe_pose[3], safe_pose[4], safe_pose[5],
             speed=int(descent_speed), acceleration=1
         )
+        wait_back = rospy.Rate(1/1.5)
+        wait_back.sleep()
         safe_pose = dobot.get_pose()
+        print(f"回退后, dobot pose: {safe_pose}, dobot z: {safe_pose[2]}")
 
         # 构造螺旋搜索中心：使用 initial_pose 的 XY，safe_pose 的 Z 和姿态
         spiral_center = initial_pose.copy()   # 以 initial_pose 为基础（保留 XY）
         spiral_center[2] = safe_pose[2]       # 使用当前安全高度的 Z
         spiral_center[3:] = safe_pose[3:]     # 使用当前姿态 [rx, ry, rz]
 
-        success, adjusted_pose, attempts = _perform_planar_spiral_search(
+        success, attempts = _perform_planar_spiral_search(
             dobot=dobot,
             initial_pose=spiral_center,  # 传递螺旋中心
             descent_step=descent_step,
@@ -1730,14 +1778,17 @@ def force_guided_spiral_insertion(
             max_spiral_radius=max_spiral_radius,
             planar_speed=planar_speed,
             descent_speed=descent_speed,
+            skip_count=cumulative_spiral_points,  # 传递已尝试的点数
             verbose=verbose,
         )
 
         planar_attempts += attempts
+        cumulative_spiral_points += attempts  # 更新累计已尝试的螺旋点数
 
         if not success:
             final_pose = dobot.get_pose()
-            print("  ❌ 微调失败，提前结束插入流程")
+            if verbose:
+                print(f"  ❌ 微调失败，已尝试螺旋点总数: {cumulative_spiral_points}, 提前结束插入流程")
             return {
                 'success': False,
                 'total_descent': initial_z - final_pose[2],
@@ -1746,11 +1797,12 @@ def force_guided_spiral_insertion(
                 'planar_attempts': planar_attempts,
                 'planar_successes': planar_successes,
                 'contact_events': contact_events,
+                'cumulative_spiral_points': cumulative_spiral_points,
             }
 
         planar_successes += 1
-        # 微调成功后，更新当前位姿
-        # current_pose = adjusted_pose.copy()
+        
+        
         current_pose = dobot.get_pose()
         #? 微调成功后为什么不退出循环?
 
@@ -1763,6 +1815,7 @@ def force_guided_spiral_insertion(
         print(f"  成功: {'是' if success else '否'}")
         print(f"  总下降: {total_descent:.2f} mm (目标: {max_descent} mm)")
         print(f"  平面微调次数: {planar_attempts} (成功 {planar_successes})")
+        print(f"  累计尝试螺旋点: {cumulative_spiral_points}")
         print("=" * 60)
 
     return {
@@ -1773,4 +1826,5 @@ def force_guided_spiral_insertion(
         'planar_attempts': planar_attempts,
         'planar_successes': planar_successes,
         'contact_events': contact_events,
+        'cumulative_spiral_points': cumulative_spiral_points,
     }
