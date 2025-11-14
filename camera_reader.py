@@ -84,7 +84,7 @@ class CameraReader:
         else:
             print("无法读取当前帧")
             return None
-    
+
     def get_init_image(self):
         """获取初始图像"""
         return self.init_image
