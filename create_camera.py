@@ -6,6 +6,8 @@ import pyrealsense2 as rs
 import time
 import threading
 
+###适用于RealSense D435i相机
+
 def create_folder_with_date():
     """创建时间戳文件夹"""
     folder_name = time.strftime("%Y%m%d_%H%M%S", time.localtime())

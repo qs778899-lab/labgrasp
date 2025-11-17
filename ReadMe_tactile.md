@@ -6,7 +6,8 @@
 cd /home/erlin/work/tasks
 conda activate normalflow
 bash create_virtualcam.bash
-选择YIMU monitor对应的ID数字即可打开虚拟相机
+或者需要创建多个虚拟相机：
+bash create_virtualcam_multi.bash
 
 
 2. 

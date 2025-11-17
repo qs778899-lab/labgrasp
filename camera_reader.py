@@ -3,6 +3,9 @@ import numpy as np
 import os
 from datetime import datetime
 
+
+###适用于视触觉相机
+
 #与USB相机的通信机制: OpenCV会扫描系统的视频设备
 
 class CameraReader:

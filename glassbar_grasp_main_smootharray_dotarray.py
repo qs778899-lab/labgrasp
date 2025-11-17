@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import sys
+import signal
+import atexit
 sys.path.append("FoundationPose")
 from estimater import *
 from datareader import *
@@ -28,6 +30,64 @@ from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose
 from camera_reader import CameraReader
 import rospy
 from std_msgs.msg import Float64MultiArray
+
+
+camera = None
+angle_camera = None
+contact_camera = None
+dobot = None
+gripper = None
+preview_running = None
+
+
+def _cleanup_resources():
+    """释放相机、机械臂和窗口等资源"""
+    global camera, angle_camera, contact_camera, dobot, preview_running
+    
+    # 停止相机预览线程
+    try:
+        if preview_running:
+            preview_running.clear()
+            print("[清理] 相机预览线程已停止")
+    except Exception:
+        pass
+    
+    try:
+        if angle_camera and getattr(angle_camera, "cap", None):
+            angle_camera.cap.release()
+    except Exception:
+        pass
+    try:
+        if contact_camera and getattr(contact_camera, "cap", None):
+            contact_camera.cap.release()
+    except Exception:
+        pass
+    try:
+        if camera:
+            camera.release()
+    except Exception:
+        pass
+    try:
+        if dobot:
+            dobot.stop()
+            dobot.disable_robot()
+    except Exception:
+        pass
+    cv2.destroyAllWindows()
+
+
+def _signal_handler(signum, frame):
+    print("\n[中断] 用户终止程序")
+    _cleanup_resources()
+    try:
+        rospy.signal_shutdown("User interrupt")
+    except Exception:
+        pass
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, _signal_handler)
+atexit.register(_cleanup_resources)
 
 
 
@@ -67,72 +127,10 @@ def init_robot():
     return dobot, gripper
 
 
-# ---------- ROS节点 ----------
-class ROSSubscriberTest:
-    def __init__(self):
-        """初始化ROS节点和订阅者"""
-        rospy.init_node('ros_subscriber_test', anonymous=True)  ##ros node name 只是告诉 ROS：“我这个节点叫什么”，与任何话题名或函数名没有直接绑定关系；保持唯一性即可。
-
-        # 缓存最新的tracking_data
-        self.latest_tracking_data = {
-            'angle_z_deg': 0.0,
-            'b': 0.0,
-            'x': 0.0,
-            'y': 0.0,
-            'timestamp': 0.0,
-            'valid': False
-        }
-        self.data_lock = threading.Lock()
-
-        # 订阅tracking_data topic
-        self.tracking_sub = rospy.Subscriber(
-            'tracking_data', #topic name: tracking_data
-            Float64MultiArray,
-            self.tracking_callback #mark: callback_function
-        )
-
-        print("ROS订阅者已启动，等待跟踪数据...")
-
-    def tracking_callback(self, msg):
-        """处理tracking_data消息"""
-        if len(msg.data) >= 4:
-            angle_z_deg = msg.data[0]
-            b = msg.data[1] 
-            x = msg.data[2]
-            y = msg.data[3]
-
-            with self.data_lock:
-                self.latest_tracking_data.update({
-                    'angle_z_deg': angle_z_deg,
-                    'b': b,
-                    'x': x,
-                    'y': y,
-                    'timestamp': time.time(),
-                    'valid': True
-                })
-            
-            # print(f"📊 跟踪数据: 角度={angle_z_deg:.2f}°, 截距={b:.6f}, 位置=({x:.6f}, {y:.6f})")
-        else:
-            pass
-            # print(f"⚠️  跟踪数据格式错误，期望4个值，实际收到{len(msg.data)}个值")
-
-    #mark: 在callback_function基础上，访问缓存的最新数据
-    def get_latest_tracking_data(self):
-        """获取最新的跟踪数据（线程安全）"""
-        with self.data_lock:
-            return self.latest_tracking_data.copy()
-    
-    def run(self):
-        """运行订阅者"""
-        try:
-            # 非阻塞保活循环：等待ROS事件，但不主动退出
-            while not rospy.is_shutdown():
-                time.sleep(0.05)
-        except KeyboardInterrupt:
-            print("\n ros中断,正在退出...")
 
 
 if __name__ == "__main__":
+    rospy.init_node('ros_test', anonymous=True)
     # 创建带时间戳的保存目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_dir = os.path.join("record_images_during_grasp", timestamp)
@@ -146,8 +144,44 @@ if __name__ == "__main__":
     # print(f"角度数据将保存到: {angle_log_path}")
     
     camera = CreateRealsense("231522072272")                      #? 怎么检查没有反？
-    angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的), YIMU ID = .
-    contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）， YIMU ID = 6.
+    angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
+    contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
+    
+    # 启动相机预览线程
+    preview_running = threading.Event()
+    preview_running.set()
+    
+    def _camera_preview_thread():
+        """后台线程：实时显示两个相机画面"""
+        # 在线程内部创建窗口
+        cv2.namedWindow("Angle Camera", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("Contact Camera", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Angle Camera", 640, 480)
+        cv2.resizeWindow("Contact Camera", 640, 480)
+        
+        while preview_running.is_set():
+            # 获取角度相机画面
+            angle_frame = angle_camera.get_current_frame()
+            if angle_frame is not None:
+                cv2.imshow("Angle Camera", angle_frame)
+            
+            # 获取接触相机画面
+            contact_frame = contact_camera.get_current_frame()
+            if contact_frame is not None:
+                cv2.imshow("Contact Camera", contact_frame)
+            
+            # 必须调用waitKey让窗口响应
+            key = cv2.waitKey(30)  # 30ms = 约33fps
+            if key == ord('q'):
+                print("用户按'q'关闭相机预览")
+                preview_running.clear()
+                break
+    
+    preview_thread = threading.Thread(target=_camera_preview_thread, daemon=True)
+    preview_thread.start()
+    time.sleep(0.5)  # 等待窗口创建
+    print("📹 相机实时预览已启动 (按'q'可关闭预览窗口)")
+    
     # mesh_file = "mesh/cube.obj"
     mesh_file = "mesh/thin_cube.obj"
     debug = 0
@@ -164,21 +198,7 @@ if __name__ == "__main__":
     # 初始化机械臂
     dobot, gripper = init_robot()
 
-    #? 初始化ROS订阅者（在后台daemon线程运行，不会阻塞main程序）
-    try:
-        ros_subscriber = ROSSubscriberTest()
-        ros_thread = threading.Thread(target=ros_subscriber.run, daemon=True)
-        ros_thread.start()
-        print("✅ ROS订阅者已在后台启动（非阻塞模式）")
-        time.sleep(1)  # 短暂等待ROS节点启动
-    except Exception as e:
-        print(f"⚠️  ROS订阅者启动失败: {e}")
-        # 创建一个空的占位对象，防止后续代码出错
-        class DummySubscriber:
-            def get_latest_tracking_data(self):
-                return {'valid': False, 'angle_z_deg': 0.0, 'b': 0.0, 'x': 0.0, 'y': 0.0, 'timestamp': 0.0}
-        ros_subscriber = DummySubscriber()
-
+    
     # 初始化评分器和姿态优化器
     scorer = ScorePredictor() 
     refiner = PoseRefinePredictor()
@@ -279,27 +299,6 @@ if __name__ == "__main__":
     # gripper.control(position=init_position, force=80, speed=10)
 
 
-    #mark: 获取ROS跟踪数据（非阻塞）
-    tracking_data = ros_subscriber.get_latest_tracking_data()
-    has_new_msg = tracking_data['valid'] and (
-        last_seen_ts is None or tracking_data['timestamp'] > last_seen_ts
-    )
-    if has_new_msg:
-        # 收到新ROS数据，更新并使用最新角度
-        angle_z_deg = tracking_data['angle_z_deg']
-        last_valid_angle = angle_z_deg
-        last_seen_ts = tracking_data['timestamp']
-        print(f"🔄 使用ROS跟踪角度: {angle_z_deg:.2f}° ")
-    else:
-        # 没有新ROS数据
-        if last_valid_angle is not None:
-            angle_z_deg = last_valid_angle
-            print(f"使用上次ROS角度: {angle_z_deg:.2f}° (当前无新数据)")
-        else:
-            angle_z_deg = -45  # 朝里
-            print("从未接收到ROS数据，使用默认角度: -45°")
-
-
     # 将center_pose转换为numpy数组
     center_pose_array = np.array(center_pose, dtype=float)
     
@@ -308,7 +307,7 @@ if __name__ == "__main__":
     z_xoy_angle = 0 # 物体绕z轴旋转角度
     vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
     grasp_tilt_angle = 30  #  由垂直向下抓取旋转为斜着向下抓取的grasp姿态的旋转角度： 加了30度会朝外旋转
-    z_safe_distance= 39  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
+    z_safe_distance= 41  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
     
     # 调用封装函数执行抓取
     success, T_base_ee_ideal = execute_grasp_from_object_pose(
@@ -359,7 +358,7 @@ if __name__ == "__main__":
             last_valid_detected_angles = detected_angles
             last_valid_avg_angle = avg_angle
             last_seen_img_ts = img_timestamp
-            print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°")
+            print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°, 绝对值: {abs(avg_angle):.2f}°")
             print("="*60)
             break
         else:
@@ -373,18 +372,12 @@ if __name__ == "__main__":
             avg_angle = 0.0
             break
 
-    # 记录angle_z_deg 和 detected_angles到log文件
-    with open(angle_log_path, 'a') as f:
-        angles_str = str(detected_angles) if detected_angles is not None else "None"
-        f.write(f"{frame_count},{time.time():.3f},{angle_z_deg:.2f},{angles_str},{avg_angle:.2f}\n")
-
-
 
 #-----------开始调整玻璃棒姿态-------------------------------------------------------
 
     print("开始调整玻璃棒姿态至垂直桌面向下")
     pose_now = dobot.get_pose()
-    delta_ee = avg_angle - grasp_tilt_angle
+    delta_ee = abs(avg_angle) - grasp_tilt_angle
     #需要让tcp朝外旋转； grasp_tilt_angle为正值时，tcp会朝外旋转。
     pose_target = [pose_now[0]+15, pose_now[1], pose_now[2], pose_now[3]+delta_ee, pose_now[4], pose_now[5]]
     dobot.move_to_pose(pose_target[0], pose_target[1], pose_target[2], pose_target[3], pose_target[4], pose_target[5], speed=12, acceleration=1)
