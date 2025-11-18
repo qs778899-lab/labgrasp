@@ -147,40 +147,38 @@ if __name__ == "__main__":
     angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
     contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
     
-    # 启动相机预览线程
-    preview_running = threading.Event()
-    preview_running.set()
-    
-    def _camera_preview_thread():
-        """后台线程：实时显示两个相机画面"""
-        # 在线程内部创建窗口
-        cv2.namedWindow("Angle Camera", cv2.WINDOW_NORMAL)
-        cv2.namedWindow("Contact Camera", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Angle Camera", 640, 480)
-        cv2.resizeWindow("Contact Camera", 640, 480)
+    # # 启动相机预览线程
+    # preview_running = threading.Event()
+    # preview_running.set()
+    # def _camera_preview_thread():
+    #     """后台线程：实时显示两个相机画面"""
+    #     # 在线程内部创建窗口
+    #     cv2.namedWindow("Angle Camera", cv2.WINDOW_NORMAL)
+    #     cv2.namedWindow("Contact Camera", cv2.WINDOW_NORMAL)
+    #     cv2.resizeWindow("Angle Camera", 640, 480)
+    #     cv2.resizeWindow("Contact Camera", 640, 480)
         
-        while preview_running.is_set():
-            # 获取角度相机画面
-            angle_frame = angle_camera.get_current_frame()
-            if angle_frame is not None:
-                cv2.imshow("Angle Camera", angle_frame)
+    #     while preview_running.is_set():
+    #         # 获取角度相机画面
+    #         angle_frame = angle_camera.get_current_frame()
+    #         if angle_frame is not None:
+    #             cv2.imshow("Angle Camera", angle_frame)
             
-            # 获取接触相机画面
-            contact_frame = contact_camera.get_current_frame()
-            if contact_frame is not None:
-                cv2.imshow("Contact Camera", contact_frame)
+    #         # 获取接触相机画面
+    #         contact_frame = contact_camera.get_current_frame()
+    #         if contact_frame is not None:
+    #             cv2.imshow("Contact Camera", contact_frame)
             
-            # 必须调用waitKey让窗口响应
-            key = cv2.waitKey(30)  # 30ms = 约33fps
-            if key == ord('q'):
-                print("用户按'q'关闭相机预览")
-                preview_running.clear()
-                break
-    
-    preview_thread = threading.Thread(target=_camera_preview_thread, daemon=True)
-    preview_thread.start()
-    time.sleep(0.5)  # 等待窗口创建
-    print("📹 相机实时预览已启动 (按'q'可关闭预览窗口)")
+    #         # 必须调用waitKey让窗口响应
+    #         key = cv2.waitKey(30)  # 30ms = 约33fps
+    #         if key == ord('q'):
+    #             print("用户按'q'关闭相机预览")
+    #             preview_running.clear()
+    #             break
+    # preview_thread = threading.Thread(target=_camera_preview_thread, daemon=True)
+    # preview_thread.start()
+    # time.sleep(0.5)  # 等待窗口创建
+    # print("📹 相机实时预览已启动 (按'q'可关闭预览窗口)")
     
     # mesh_file = "mesh/cube.obj"
     mesh_file = "mesh/thin_cube.obj"
@@ -307,7 +305,7 @@ if __name__ == "__main__":
     z_xoy_angle = 0 # 物体绕z轴旋转角度
     vertical_euler = [-180, 0, -90]  # 垂直向下抓取的grasp姿态的rx, ry, rz
     grasp_tilt_angle = 30  #  由垂直向下抓取旋转为斜着向下抓取的grasp姿态的旋转角度： 加了30度会朝外旋转
-    z_safe_distance= 41  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
+    z_safe_distance= 46  #z方向的一个安全距离，也是为了抓取物体靠上的部分，可灵活调整
     
     # 调用封装函数执行抓取
     success, T_base_ee_ideal = execute_grasp_from_object_pose(
