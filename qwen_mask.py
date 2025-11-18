@@ -237,6 +237,7 @@ def get_mask_from_qwen(
     rgb_image: np.ndarray,
     prompt: str,
     model_path: Optional[str] = None,
+    bbox_vis_path: Optional[str] = None,
 ) -> Optional[np.ndarray]:
     """
     使用本地Qwen3-VL模型检测指定目标的包围框，并通过SAM生成掩码。
@@ -258,6 +259,13 @@ def get_mask_from_qwen(
     )
     if bbox is None:
         return None
+
+    debug_image = rgb_image.copy()
+    cv2.rectangle(debug_image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 0, 255), 2)
+    cv2.imshow("qwen_bbox", debug_image)
+    cv2.waitKey(1)
+    if bbox_vis_path:
+        cv2.imwrite(bbox_vis_path, debug_image)
 
     return _segment_with_sam(rgb_image, bbox)
 

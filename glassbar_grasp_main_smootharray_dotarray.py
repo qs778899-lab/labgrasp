@@ -241,7 +241,7 @@ if __name__ == "__main__":
             # 每隔30帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
                 #使用GroundingDINO进行语义理解找到物体的粗略位置，SAM获取物体的相对精确掩码
-                mask = get_mask_from_qwen(color, "red stirring rod", model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Instruct")
+                mask = get_mask_from_qwen(color, "red stirring rod", model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Thinking", bbox_vis_path=os.path.join(save_dir, f"qwen_bbox_frame_{frame_count:06d}.png"))
                 # mask = get_mask_from_GD(color, "red stirring rod")
                 # mask = get_mask_from_GD(color, "Plastic dropper") 
                 # mask = get_mask_from_GD(color, "long yellow bar")
@@ -255,7 +255,7 @@ if __name__ == "__main__":
                 center_pose = pose@np.linalg.inv(to_origin) #! 这个才是物体中心点的Pose
                 vis = draw_posed_3d_box(cam_k, img=color, ob_in_cam=center_pose, bbox=bbox)
                 vis = draw_xyz_axis(color, ob_in_cam=center_pose, scale=0.1, K=cam_k, thickness=3, transparency=0, is_input_rgb=True)
-                cv2.imshow('1', vis[...,::-1])
+                cv2.imshow('object 6D pose', vis[...,::-1])
     
                 mask_path = os.path.join(save_dir, f"mask_frame_{frame_count:06d}.png")
                 vis_path = os.path.join(save_dir, f"vis_frame_{frame_count:06d}.png")
