@@ -5,7 +5,8 @@ import atexit
 sys.path.append("FoundationPose")
 from estimater import *
 from datareader import *
-from dino_mask import get_mask_from_GD   
+from dino_mask import get_mask_from_GD 
+from qwen_mask import get_mask_from_qwen
 from create_camera import CreateRealsense
 import cv2
 import numpy as np
@@ -143,9 +144,10 @@ if __name__ == "__main__":
         f.write("frame,timestamp,angle_z_deg,detected_angles,avg_angle\n")
     # print(f"角度数据将保存到: {angle_log_path}")
     
-    camera = CreateRealsense("231522072272")                      #? 怎么检查没有反？
-    angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
-    contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
+    camera = CreateRealsense("231522072272")                     
+    # #? 怎么检查没有反？
+    # angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
+    # contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
     
     # # 启动相机预览线程
     # preview_running = threading.Event()
@@ -239,7 +241,8 @@ if __name__ == "__main__":
             # 每隔30帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
                 #使用GroundingDINO进行语义理解找到物体的粗略位置，SAM获取物体的相对精确掩码
-                mask = get_mask_from_GD(color, "red stirring rod")
+                mask = get_mask_from_qwen(color, "red stirring rod", model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Instruct")
+                # mask = get_mask_from_GD(color, "red stirring rod")
                 # mask = get_mask_from_GD(color, "Plastic dropper") 
                 # mask = get_mask_from_GD(color, "long yellow bar")
                 # mask = get_mask_from_GD(color, "long red bar")
@@ -259,9 +262,9 @@ if __name__ == "__main__":
                 cv2.imwrite(mask_path, mask)
                 cv2.imwrite(vis_path, vis[...,::-1])                
 
-                # cv2.waitKey(0) #waitKey(0) 是一种阻塞
-                # input("break001") #input也是一种阻塞
-                # print("break001")
+                cv2.waitKey(0) #waitKey(0) 是一种阻塞
+                input("break001") #input也是一种阻塞
+                print("break001")
                 
                 #? 清理内存 (这个有用吗？)
                 torch.cuda.empty_cache()
@@ -295,6 +298,11 @@ if __name__ == "__main__":
     #
     # init_position = 10
     # gripper.control(position=init_position, force=80, speed=10)
+
+
+    #? 怎么检查没有反？
+    angle_camera = CameraReader(camera_id=11, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
+    contact_camera = CameraReader(camera_id=10, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
 
 
     # 将center_pose转换为numpy数组

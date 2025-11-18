@@ -9,6 +9,8 @@ GroundingDino/groundingdino_swint_ogc.pth
 *.weights
 *.h5
 
+Qwen3-VL/
+
 # Python 缓存
 __pycache__/
 *.py[cod]
