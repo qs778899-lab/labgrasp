@@ -27,7 +27,7 @@ from scipy.spatial.transform import Rotation as R
 import queue
 from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
-from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
+###from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 from camera_reader import CameraReader
 from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface
 from env import create_env
@@ -87,10 +87,6 @@ atexit.register(_cleanup_resources)
 
 
 
-
-# 初始化函数在 env.py 中
-
-
 if __name__ == "__main__":
     rospy.init_node('ros_test', anonymous=True)
     # 创建带时间戳的保存目录
@@ -134,7 +130,7 @@ if __name__ == "__main__":
 
 
     key = cv2.waitKey(1)
-    #! 怎么检查id是否对应
+    #! 检查id是否对应
     angle_camera = CameraReader(camera_id=10, init_camera=True)   #! 用于角度检测的USB相机 
     contact_camera = CameraReader(camera_id=11, init_camera=True) #! 用于触碰检测的USB相机 
 
