@@ -299,12 +299,15 @@ def choose_grasp_pose(
     pos_mm[2] += z_safe_distance  # 添加z方向额外安全距离
     
     grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2], rx, ry, rz]
+
+    pre_distance = 20
+    pre_grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2]+ pre_distance, rx, ry, rz]
     
     if verbose:
         print(f"计算完成 - 目标位置: [{pos_mm[0]:.2f}, {pos_mm[1]:.2f}, {pos_mm[2]:.2f}] mm")
         print(f"计算完成 - 目标姿态: rx={rx:.2f}°, ry={ry:.2f}°, rz={rz:.2f}°")
     
-    return grasp_pose, T_base_ee_ideal
+    return pre_grasp_pose, grasp_pose, T_base_ee_ideal
 
 
 def execute_grasp_action(

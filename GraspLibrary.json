@@ -23,7 +23,7 @@
         "grasp_tilt_angle": 30,
         "angle_threshold": 10.0,
         "T_safe_distance": 0.00,
-        "z_safe_distance": 52,
+        "z_safe_distance": 56,
         "gripper_close_pos": 15
     }
 }
