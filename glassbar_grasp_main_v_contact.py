@@ -195,7 +195,7 @@ if __name__ == "__main__":
     wait_detect.sleep()
 
 
-#-----------开始调整玻璃棒姿态-------------------------------------------------------
+#-----------开始调整玻璃棒姿态垂直向下-------------------------------------------------------
     pose_target, pose_after_adjust = adjust_object_orientation(
         dobot=dobot,
         avg_angle=avg_angle,

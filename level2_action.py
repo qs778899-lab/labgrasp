@@ -99,8 +99,8 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
             
             # 每隔15帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
-                # mask = get_mask_from_GD(color, target)
-                mask = get_mask_from_qwen(color, target, model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Thinking", bbox_vis_path=os.path.join(save_dir, f"qwen_bbox_frame_{frame_count:06d}.png"))
+                mask = get_mask_from_GD(color, target)
+                # mask = get_mask_from_qwen(color, target, model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Thinking", bbox_vis_path=os.path.join(save_dir, f"qwen_bbox_frame_{frame_count:06d}.png"))
             
                 cv2.imshow("mask", mask)
                 cv2.imshow("color", color)
@@ -408,6 +408,9 @@ def adjust_object_orientation(
     
     if verbose:
         print("\n开始调整物体姿态至垂直桌面向下")
+
+    wait_stable = rospy.Rate(1.0 / 1.0)
+    wait_stable.sleep()
     
     pose_now = dobot.get_pose()
     delta_ee = abs(avg_angle) - grasp_tilt_angle
