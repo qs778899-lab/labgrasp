@@ -118,6 +118,24 @@ def _extract_json_payload(output_text: str) -> Optional[str]:
     if inline_match:
         return f"[{inline_match.group(0)}]"
 
+    # 尝试修复缺少闭合括号的JSON
+    if output_text.strip().startswith("[") and not output_text.strip().endswith("]"):
+        fixed_text = output_text.strip() + "]"
+        try:
+            json.loads(fixed_text)
+            return fixed_text
+        except json.JSONDecodeError:
+            pass
+            
+    # 尝试修复缺少闭合花括号的JSON
+    if output_text.strip().startswith("[") and output_text.strip().endswith("}"):
+        fixed_text = output_text.strip() + "]"
+        try:
+            json.loads(fixed_text)
+            return fixed_text
+        except json.JSONDecodeError:
+            pass
+
     return None
 
 
@@ -228,6 +246,14 @@ def _predict_bbox_with_qwen(
 def _segment_with_sam(image: np.ndarray, bbox: List[int]) -> np.ndarray:
     _ensure_sam_predictor()
     results = _global_sam_predictor(image, bboxes=[bbox])
+    
+    # 检查是否有检测结果
+    if not results or not results[0].masks or len(results[0].masks.data) == 0:
+        print("SAM未生成任何掩码。")
+        # 返回全黑掩码
+        h, w = image.shape[:2]
+        return np.zeros((h, w), dtype=np.uint8)
+
     mask = results[0].masks.data[0].cpu().numpy()
     mask = (mask > 0).astype(np.uint8) * 255
     return mask

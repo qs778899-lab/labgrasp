@@ -23,15 +23,21 @@ from PIL import Image
 
 def load_grounding_dino(config_path, checkpoint_path, device="cpu"):
     cfg = SLConfig.fromfile(config_path)
+    print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
         "/home/erlin/work/dobot_python_api/models/bert-base-uncased",
         local_files_only=True  
     )
+    print("Building model...")
     model = build_model(cfg)
+    print("Loading checkpoint...")
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    print("Loading state dict...")
     model.load_state_dict(clean_state_dict(checkpoint["model"]), strict=False)
     model.eval()
+    print(f"Moving model to {device}...")
     model.to(device)
+    print("Model loaded.")
     return model
 
 
@@ -183,167 +189,169 @@ def get_mask_from_GD(rgb_image, prompt):
     
     # 只在第一次调用时初始化SAM
     if _global_sam_predictor is None:
+        print("SAM模型正在加载...")
         # _global_sam_predictor = SAMPredictor(overrides=dict(model='/home/erlin/TCP-IP-Python-V4/sam2.1_b.pt', save=False, project=None, name=None, exist_ok=True, verbose=False))
         _global_sam_predictor = SAM(model="/home/erlin/TCP-IP-Python-V4/sam2.1_b.pt")
         print("SAM模型已加载")
     
     bbox = detect_mask(_global_dino_model, rgb_image, prompt=prompt, show=False)  # 关闭显示以提高性能
     if bbox is None:
+        print("GroundingDINO未能检测到有效的目标边界框。")
         return None
     
     output_mask = segment_image_fast(rgb_image, bbox, _global_sam_predictor)
     return output_mask
 
 
-def _ensure_qwen_model(
-    model_name: Optional[str] = None,
-    torch_dtype: Optional[torch.dtype] = None,
-    local_files_only: Optional[bool] = None,
-):
-    global _global_qwen_model, _global_qwen_processor, _global_qwen_device, _global_qwen_model_id
+# def _ensure_qwen_model(
+#     model_name: Optional[str] = None,
+#     torch_dtype: Optional[torch.dtype] = None,
+#     local_files_only: Optional[bool] = None,
+# ):
+#     global _global_qwen_model, _global_qwen_processor, _global_qwen_device, _global_qwen_model_id
 
-    if model_name is None:
-        model_name = os.environ.get("QWEN_VL_MODEL_PATH", "Qwen/Qwen2-VL-2B-Instruct")
+#     if model_name is None:
+#         model_name = os.environ.get("QWEN_VL_MODEL_PATH", "Qwen/Qwen2-VL-2B-Instruct")
 
-    if local_files_only is None:
-        local_files_only = os.path.isdir(model_name)
+#     if local_files_only is None:
+#         local_files_only = os.path.isdir(model_name)
 
-    if local_files_only:
-        model_name = os.path.abspath(model_name)
+#     if local_files_only:
+#         model_name = os.path.abspath(model_name)
 
-    if torch_dtype is None:
-        torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+#     if torch_dtype is None:
+#         torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    if _global_qwen_model is not None and _global_qwen_model_id == model_name:
-        return
+#     if _global_qwen_model is not None and _global_qwen_model_id == model_name:
+#         return
 
-    device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    _global_qwen_device = torch.device(device_str)
-    _global_qwen_model_id = model_name
+#     device_str = "cuda" if torch.cuda.is_available() else "cpu"
+#     _global_qwen_device = torch.device(device_str)
+#     _global_qwen_model_id = model_name
 
-    _global_qwen_processor = AutoProcessor.from_pretrained(
-        model_name,
-        trust_remote_code=True,
-        local_files_only=local_files_only,
-    )
-    _global_qwen_model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        trust_remote_code=True,
-        torch_dtype=torch_dtype,
-        local_files_only=local_files_only,
-    )
-    _global_qwen_model.to(_global_qwen_device)
-    _global_qwen_model.eval()
+#     _global_qwen_processor = AutoProcessor.from_pretrained(
+#         model_name,
+#         trust_remote_code=True,
+#         local_files_only=local_files_only,
+#     )
+#     _global_qwen_model = AutoModelForCausalLM.from_pretrained(
+#         model_name,
+#         trust_remote_code=True,
+#         torch_dtype=torch_dtype,
+#         local_files_only=local_files_only,
+#     )
+#     _global_qwen_model.to(_global_qwen_device)
+#     _global_qwen_model.eval()
 
-    print(f"Qwen模型已加载: {model_name}")
-
-
-def _parse_bbox_from_text(text: str, image_shape) -> Optional[list]:
-    if not text:
-        return None
-
-    matches = re.findall(r"-?\d+\.?\d*", text)
-    if len(matches) < 4:
-        return None
-
-    coords = list(map(float, matches[:4]))
-    h, w = image_shape[:2]
-
-    if max(coords) <= 1.5:
-        coords = [coords[0] * w, coords[1] * h, coords[2] * w, coords[3] * h]
-
-    x1, y1, x2, y2 = coords
-    if x1 > x2:
-        x1, x2 = x2, x1
-    if y1 > y2:
-        y1, y2 = y2, y1
-
-    x1 = int(round(max(0, min(x1, w - 1))))
-    y1 = int(round(max(0, min(y1, h - 1))))
-    x2 = int(round(max(0, min(x2, w - 1))))
-    y2 = int(round(max(0, min(y2, h - 1))))
-
-    if x2 <= x1 or y2 <= y1:
-        return None
-
-    return [x1, y1, x2, y2]
+#     print(f"Qwen模型已加载: {model_name}")
 
 
-def detect_bbox_with_qwen(
-    rgb_image,
-    prompt,
-    model_name: Optional[str] = None,
-    max_new_tokens: int = 128,
-    local_files_only: Optional[bool] = None,
-):
-    if AutoModelForCausalLM is None or AutoProcessor is None:
-        raise ImportError("transformers 未安装，无法加载Qwen模型。")
+# def _parse_bbox_from_text(text: str, image_shape) -> Optional[list]:
+#     if not text:
+#         return None
 
-    _ensure_qwen_model(model_name=model_name, local_files_only=local_files_only)
+#     matches = re.findall(r"-?\d+\.?\d*", text)
+#     if len(matches) < 4:
+#         return None
 
-    image_input = rgb_image
-    if image_input.ndim == 3 and image_input.shape[2] == 3:
-        image_input = cv2.cvtColor(image_input, cv2.COLOR_BGR2RGB)
+#     coords = list(map(float, matches[:4]))
+#     h, w = image_shape[:2]
 
-    image_pil = Image.fromarray(image_input)
-    query = (
-        f"请找出图像中与“{prompt}”对应的目标，"
-        "仅返回该目标的像素级外接矩形框，格式为x1,y1,x2,y2。"
-        "若无法确定，请输出None。"
-    )
+#     if max(coords) <= 1.5:
+#         coords = [coords[0] * w, coords[1] * h, coords[2] * w, coords[3] * h]
 
-    inputs = _global_qwen_processor(
-        text=[query],
-        images=[image_pil],
-        return_tensors="pt"
-    )
-    inputs = {k: v.to(_global_qwen_device) for k, v in inputs.items()}
+#     x1, y1, x2, y2 = coords
+#     if x1 > x2:
+#         x1, x2 = x2, x1
+#     if y1 > y2:
+#         y1, y2 = y2, y1
 
-    with torch.no_grad():
-        output_ids = _global_qwen_model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            temperature=0.1
-        )
+#     x1 = int(round(max(0, min(x1, w - 1))))
+#     y1 = int(round(max(0, min(y1, h - 1))))
+#     x2 = int(round(max(0, min(x2, w - 1))))
+#     y2 = int(round(max(0, min(y2, h - 1))))
 
-    response = _global_qwen_processor.batch_decode(
-        output_ids,
-        skip_special_tokens=True
-    )[0].strip()
-    print(f"Qwen返回: {response}")
+#     if x2 <= x1 or y2 <= y1:
+#         return None
 
-    bbox = _parse_bbox_from_text(response, rgb_image.shape)
-    return bbox
+#     return [x1, y1, x2, y2]
 
 
-def get_mask_from_qwen(
-    rgb_image,
-    prompt,
-    model_name: Optional[str] = None,
-    local_files_only: Optional[bool] = None,
-):
-    global _global_sam_predictor
+# def detect_bbox_with_qwen(
+#     rgb_image,
+#     prompt,
+#     model_name: Optional[str] = None,
+#     max_new_tokens: int = 128,
+#     local_files_only: Optional[bool] = None,
+# ):
+#     if AutoModelForCausalLM is None or AutoProcessor is None:
+#         raise ImportError("transformers 未安装，无法加载Qwen模型。")
 
-    if local_files_only is None and model_name is not None:
-        local_files_only = os.path.isdir(model_name)
+#     _ensure_qwen_model(model_name=model_name, local_files_only=local_files_only)
 
-    bbox = detect_bbox_with_qwen(
-        rgb_image,
-        prompt,
-        model_name=model_name,
-        local_files_only=local_files_only,
-    )
-    if bbox is None:
-        print("Qwen未能检测到有效的目标边界框。")
-        return None
+#     image_input = rgb_image
+#     if image_input.ndim == 3 and image_input.shape[2] == 3:
+#         image_input = cv2.cvtColor(image_input, cv2.COLOR_BGR2RGB)
 
-    if _global_sam_predictor is None:
-        _global_sam_predictor = SAM(model="/home/erlin/TCP-IP-Python-V4/sam2.1_b.pt")
-        print("SAM模型已加载")
+#     image_pil = Image.fromarray(image_input)
+#     query = (
+#         f"请找出图像中与“{prompt}”对应的目标，"
+#         "仅返回该目标的像素级外接矩形框，格式为x1,y1,x2,y2。"
+#         "若无法确定，请输出None。"
+#     )
 
-    output_mask = segment_image_fast(rgb_image, bbox, _global_sam_predictor)
-    return output_mask
+#     inputs = _global_qwen_processor(
+#         text=[query],
+#         images=[image_pil],
+#         return_tensors="pt"
+#     )
+#     inputs = {k: v.to(_global_qwen_device) for k, v in inputs.items()}
+
+#     with torch.no_grad():
+#         output_ids = _global_qwen_model.generate(
+#             **inputs,
+#             max_new_tokens=max_new_tokens,
+#             do_sample=False,
+#             temperature=0.1
+#         )
+
+#     response = _global_qwen_processor.batch_decode(
+#         output_ids,
+#         skip_special_tokens=True
+#     )[0].strip()
+#     print(f"Qwen返回: {response}")
+
+#     bbox = _parse_bbox_from_text(response, rgb_image.shape)
+#     return bbox
+
+
+# def get_mask_from_qwen(
+#     rgb_image,
+#     prompt,
+#     model_name: Optional[str] = None,
+#     local_files_only: Optional[bool] = None,
+# ):
+#     global _global_sam_predictor
+
+#     if local_files_only is None and model_name is not None:
+#         local_files_only = os.path.isdir(model_name)
+
+#     bbox = detect_bbox_with_qwen(
+#         rgb_image,
+#         prompt,
+#         model_name=model_name,
+#         local_files_only=local_files_only,
+#     )
+#     if bbox is None:
+#         print("Qwen未能检测到有效的目标边界框。")
+#         return None
+
+#     if _global_sam_predictor is None:
+#         _global_sam_predictor = SAM(model="/home/erlin/TCP-IP-Python-V4/sam2.1_b.pt")
+#         print("SAM模型已加载")
+
+#     output_mask = segment_image_fast(rgb_image, bbox, _global_sam_predictor)
+#     return output_mask
 
 def segment_image_fast(image_rgb, bbox, predictor):
     """快速分割版本，复用已加载的predictor"""

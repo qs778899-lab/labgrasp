@@ -31,7 +31,9 @@ dn_bbox_coef = 1.0
 embed_init_tgt = True
 dn_labelbook_size = 2000
 max_text_len = 256
-text_encoder_type = "bert-base-uncased"
+# text_encoder_type = "bert-base-uncased" #!
+#!  路径现在是绝对路径
+text_encoder_type = "/home/erlin/work/dobot_python_api/models/bert-base-uncased"
 use_text_enhancer = True
 use_fusion_layer = True
 use_checkpoint = True

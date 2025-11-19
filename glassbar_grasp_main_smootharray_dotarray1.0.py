@@ -29,7 +29,7 @@ from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
 from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 from camera_reader import CameraReader
-from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action
+from level2_action import detect_object_pose_using_foundation_pose
 from env import create_env
 import rospy
 from std_msgs.msg import Float64MultiArray
@@ -46,12 +46,15 @@ preview_running = None
 def _cleanup_resources():
     """释放相机、机械臂和窗口等资源"""
     global camera, angle_camera, contact_camera, dobot, preview_running
+    
+    # 停止相机预览线程
     try:
         if preview_running:
             preview_running.clear()
             print("[清理] 相机预览线程已停止")
     except Exception:
         pass
+    
     try:
         if angle_camera and getattr(angle_camera, "cap", None):
             angle_camera.cap.release()
@@ -74,6 +77,8 @@ def _cleanup_resources():
     except Exception:
         pass
     cv2.destroyAllWindows()
+
+
 def _signal_handler(signum, frame):
     print("\n[中断] 用户终止程序")
     _cleanup_resources()
@@ -82,13 +87,14 @@ def _signal_handler(signum, frame):
     except Exception:
         pass
     sys.exit(0)
+
+
 signal.signal(signal.SIGINT, _signal_handler)
 atexit.register(_cleanup_resources)
 
 
 
-
-# 初始化函数在 env.py 中
+# 初始化函数已经移到 env.py 中，不再需要这里的重复代码
 
 
 if __name__ == "__main__":
@@ -125,6 +131,7 @@ if __name__ == "__main__":
     # mesh_file = "mesh/cube.obj"
     # mesh_file = "mesh/thin_cube.obj"
     mesh_file = "mesh/cube_1_20.obj"
+    
     # 调用封装好的函数检测物体位姿
     center_pose = detect_object_pose_using_foundation_pose(
         target=target_object,
@@ -134,6 +141,8 @@ if __name__ == "__main__":
 
 
     key = cv2.waitKey(1)
+
+
     #? 怎么检查没有反？
     angle_camera = CameraReader(camera_id=10, init_camera=True)   #! 用于角度检测的USB相机 (id=11, 是后加的)
     contact_camera = CameraReader(camera_id=11, init_camera=True) #! 用于触碰检测的USB相机 （id=10, 是原来的）
@@ -141,6 +150,9 @@ if __name__ == "__main__":
 
     # 将center_pose转换为numpy数组
     center_pose_array = np.array(center_pose, dtype=float)
+
+    
+    # ------使用封装函数执行抓取------
     # 从 GraspLibrary 获取抓取参数
     z_xoy_angle = grasp_params["z_xoy_angle"]
     vertical_euler = grasp_params["vertical_euler"]
@@ -150,30 +162,20 @@ if __name__ == "__main__":
     z_safe_distance = grasp_params["z_safe_distance"]
     gripper_close_pos = grasp_params["gripper_close_pos"]
     
-    # 计算抓取姿态
-    grasp_pose, T_base_ee_ideal = choose_grasp_pose(
+    # 调用封装函数执行抓取
+    success, T_base_ee_ideal = execute_grasp_from_object_pose(
         center_pose_array=center_pose_array,
         dobot=dobot,
+        gripper=gripper,
         T_ee_cam=T_ee_cam,
         z_xoy_angle=z_xoy_angle,
         vertical_euler=vertical_euler,
         grasp_tilt_angle=grasp_tilt_angle,
         angle_threshold=angle_threshold,
-        T_tcp_ee_z=-0.16,
+        T_tcp_ee_z= -0.16, 
         T_safe_distance=T_safe_distance,
         z_safe_distance=z_safe_distance,
-        verbose=True
-    )
-    
-    # 执行抓取动作
-    success = execute_grasp_action(
-        grasp_pose=grasp_pose,
-        dobot=dobot,
-        gripper=gripper,
         gripper_close_pos=gripper_close_pos,
-        move_speed=8,
-        gripper_force=10,
-        gripper_speed=30,
         verbose=True
     )
 

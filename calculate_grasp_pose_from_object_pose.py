@@ -259,8 +259,9 @@ def execute_grasp_from_object_pose(
     if dobot.check_pose(*adjusted_pos):
         if verbose:
             print("[执行] 到达指定抓取物体位置")
-        if enable_gripper:
-            gripper.control(gripper_open_pos, gripper_force, gripper_speed)
+        # if enable_gripper:
+        #     pass
+        #     gripper.control(gripper_open_pos, gripper_force, gripper_speed)
     
     # 最终位置（要不要去掉安全距离）
     final_pos = [pos_mm[0], pos_mm[1], pos_mm[2]]
@@ -271,6 +272,7 @@ def execute_grasp_from_object_pose(
             pass
             # print("[执行] 再次确认到达抓取位置，执行抓取")
         gripper.control(gripper_close_pos, gripper_force, gripper_speed)
+        print("夹爪开始闭合")
         
         # 等待夹爪到达目标位置
         timeout, interval = 5.0, 0.1
