@@ -100,7 +100,7 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
             # 每隔15帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
                 # mask = get_mask_from_GD(color, target)
-                mask = get_mask_from_qwen(color, target)
+                mask = get_mask_from_qwen(color, target, model_path="/home/erlin/work/labgrasp/Qwen3-VL/Qwen3-VL-4B-Thinking", bbox_vis_path=os.path.join(save_dir, f"qwen_bbox_frame_{frame_count:06d}.png"))
             
                 cv2.imshow("mask", mask)
                 cv2.imshow("color", color)

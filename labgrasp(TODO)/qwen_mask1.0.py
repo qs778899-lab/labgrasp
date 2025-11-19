@@ -143,21 +143,14 @@ def _scale_bbox(bbox: List[float], image_size: Tuple[int, int]) -> Optional[List
     h, w = image_size
     x1, y1, x2, y2 = bbox
     values = np.array([x1, y1, x2, y2], dtype=float)
-    if np.any(~np.isfinite(values)):
-        return None
 
-    max_val = float(np.max(values))
-
-    if max_val <= 1.5:  # normalized 0~1
+    if np.max(values) <= 1.5:
         values[0::2] *= w
         values[1::2] *= h
-    elif max_val <= 1024:  # Qwen 默认0~1000坐标系
-        values[0::2] = values[0::2] * w / 1000.0
-        values[1::2] = values[1::2] * h / 1000.0
-    elif max_val > max(w, h) * 1.1:  # 超出图像尺寸，按1000坐标系回缩
-        values[0::2] = np.clip(values[0::2], 0, 1000) * w / 1000.0
-        values[1::2] = np.clip(values[1::2], 0, 1000) * h / 1000.0
- 
+    elif np.max(values) > max(w, h):
+        values[0::2] *= w / 1000.0
+        values[1::2] *= h / 1000.0
+
     x1, y1, x2, y2 = values
     x1, x2 = min(x1, x2), max(x1, x2)
     y1, y2 = min(y1, y2), max(y1, y2)
@@ -250,74 +243,20 @@ def _predict_bbox_with_qwen(
     return _parse_bounding_box(output_text, (h, w))
 
 
-def _expand_bbox(
-    bbox: List[int],
-    image_shape: Tuple[int, int],
-    scale: float = 1.25,
-    min_padding: int = 20,
-) -> List[int]:
-    """
-    按比例扩大边界框，并在必要时增加最小的边缘留白，以提高SAM分割成功率。
-    """
-    h, w = image_shape[:2]
-    x1, y1, x2, y2 = bbox
-    cx = (x1 + x2) / 2.0
-    cy = (y1 + y2) / 2.0
-    width = (x2 - x1)
-    height = (y2 - y1)
-
-    width = max(width * scale, width + 2 * min_padding)
-    height = max(height * scale, height + 2 * min_padding)
-
-    new_x1 = int(max(0, cx - width / 2.0))
-    new_y1 = int(max(0, cy - height / 2.0))
-    new_x2 = int(min(w - 1, cx + width / 2.0))
-    new_y2 = int(min(h - 1, cy + height / 2.0))
-
-    if new_x2 <= new_x1 or new_y2 <= new_y1:
-        return [x1, y1, x2, y2]
-    return [new_x1, new_y1, new_x2, new_y2]
-
-
 def _segment_with_sam(image: np.ndarray, bbox: List[int]) -> np.ndarray:
     _ensure_sam_predictor()
-    attempts: List[Tuple[List[int], str]] = [
-        (bbox, "原始"),
-        (_expand_bbox(bbox, image.shape, scale=1.35, min_padding=25), "扩大1.35x"),
-        (_expand_bbox(bbox, image.shape, scale=1.6, min_padding=40), "扩大1.6x"),
-    ]
+    results = _global_sam_predictor(image, bboxes=[bbox])
+    
+    # 检查是否有检测结果
+    if not results or not results[0].masks or len(results[0].masks.data) == 0:
+        print("SAM未生成任何掩码。")
+        # 返回全黑掩码
+        h, w = image.shape[:2]
+        return np.zeros((h, w), dtype=np.uint8)
 
-    for current_bbox, label in attempts:
-        try:
-            print(f"SAM尝试使用{label}边界框: {current_bbox}")
-            results = _global_sam_predictor.predict(
-                image,
-                bboxes=[current_bbox],
-                verbose=False,
-                save=False,
-            )
-        except Exception as exc:
-            print(f"SAM推理失败({label}): {exc}")
-            continue
-
-        if (
-            not results
-            or not results[0].masks
-            or len(results[0].masks.data) == 0
-        ):
-            print(f"SAM未生成任何掩码 ({label})。")
-            continue
-
-        mask = results[0].masks.data[0].cpu().numpy()
-        mask = (mask > 0).astype(np.uint8) * 255
-        if mask.sum() > 0:
-            return mask
-        print(f"SAM生成的掩码全为零 ({label})，尝试其他策略。")
-
-    # 所有尝试均失败，返回全黑掩码
-    h, w = image.shape[:2]
-    print("SAM尝试所有策略仍未获得有效掩码，返回全黑掩码。")
-    return np.zeros((h, w), dtype=np.uint8)
+    mask = results[0].masks.data[0].cpu().numpy()
+    mask = (mask > 0).astype(np.uint8) * 255
+    return mask
 
 
 def get_mask_from_qwen(
