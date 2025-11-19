@@ -89,10 +89,8 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
             frames = camera.get_frames()
             if frames is None:
                 continue
-            color = frames['color']  #get_frames获取当前帧的所有数据（RGB、深度、红外等）
+            color = frames['color']  #get_frames获取当前帧的所有数据（RGB、深度等）
             depth = frames['depth']/1000
-            ir1 = frames['ir1']
-            ir2 = frames['ir2']
 
             color_path = os.path.join(save_dir, f"color_frame_{frame_count:06d}.png")
             print("befor foundation pose, color_shape: ", color.shape)
