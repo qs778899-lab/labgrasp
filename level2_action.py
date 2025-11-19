@@ -440,6 +440,137 @@ def adjust_object_orientation(
     return pose_target, pose_after_adjust
 
 
+def detect_contact_with_surface(
+    dobot,
+    contact_camera,
+    save_dir,
+    sample_interval=0.1,
+    move_step=3,
+    max_steps=700,
+    change_threshold=3,
+    pixel_threshold=2,
+    min_area=2,
+    move_speed=5,
+    acceleration=1,
+    verbose=True
+):
+    """
+    检测物体是否触碰到桌面（通过相机图像变化）
+    
+    Args:
+        dobot: Dobot机械臂对象
+        contact_camera: 用于接触检测的相机对象
+        save_dir: 保存调试图像的目录
+        sample_interval: 采样间隔（秒）
+        move_step: 每步下降距离（毫米）
+        max_steps: 最大步数
+        change_threshold: 变化阈值（百分比）
+        pixel_threshold: 像素变化阈值
+        min_area: 最小变化区域
+        move_speed: 移动速度
+        acceleration: 加速度
+        verbose: 是否打印详细信息
+    
+    Returns:
+        contact_detected: 是否检测到接触（布尔值）
+        steps_taken: 实际下降的步数
+        total_distance: 总下降距离（毫米）
+    """
+    import rospy
+    
+    if verbose:
+        print("\n开始监测物体与桌面接触...")
+    
+    gray_debug_dir = os.path.join(save_dir, "gray_images_debug")
+    os.makedirs(gray_debug_dir, exist_ok=True)
+    
+    rate = rospy.Rate(1.0 / sample_interval)
+    rate.sleep()
+    
+    # 获取初始图像
+    frame_before = None
+    while frame_before is None:
+        initial_frame = contact_camera.get_current_frame()
+        if initial_frame is not None:
+            frame_before = initial_frame
+        else:
+            if verbose:
+                print("等待初始图像...")
+            rospy.sleep(sample_interval)
+    
+    pose_current = dobot.get_pose()
+    contact_detected = False
+    steps_taken = 0
+    
+    for step in range(max_steps):
+        wait = rospy.Rate(33)
+        wait.sleep()
+        
+        # 获取动作前图像
+        frame_data_before = contact_camera.get_current_frame()
+        if frame_data_before is None:
+            if verbose:
+                print(f"  步骤 {step+1}: 等待动作前图像...")
+            rospy.sleep(sample_interval)
+            continue
+        frame_before = frame_data_before
+        
+        # 向下移动一小步
+        pose_current[2] -= move_step
+        dobot.move_to_pose(
+            pose_current[0], pose_current[1], pose_current[2],
+            pose_current[3], pose_current[4], pose_current[5],
+            speed=move_speed,
+            acceleration=acceleration
+        )
+        
+        # 等待并抓取动作后的新帧，连续高频采样检测
+        frame_after = None
+        has_change = False
+        for _ in range(20):  # 0.1*20 = 2s
+            rate.sleep()
+            candidate_frame = contact_camera.get_current_frame()
+            if candidate_frame is not None:
+                frame_after = candidate_frame
+                
+                has_change = contact_camera.has_significant_change(
+                    frame_before, frame_after,
+                    change_threshold=change_threshold,
+                    pixel_threshold=pixel_threshold,
+                    min_area=min_area,
+                    save_dir=gray_debug_dir,
+                    step_num=step
+                )
+                
+                if has_change:
+                    break
+        
+        if frame_after is None:
+            if verbose:
+                print(f"  步骤 {step+1}: 未收到新图像，继续等待...")
+            continue
+        
+        if has_change:
+            contact_detected = True
+            steps_taken = step + 1
+            if verbose:
+                print(f"检测到显著变化！物体可能已接触桌面 (步数: {steps_taken}, 下降: {steps_taken*move_step}mm)")
+            break
+        
+        if verbose:
+            print(f"  步骤 {step+1}/{max_steps}: 未检测到接触，继续下降...")
+        steps_taken = step + 1
+    
+    if not contact_detected and verbose:
+        print("达到垂直向下最大移动距离，未检测到明显变化")
+    
+    if verbose:
+        print("下降检测完成\n")
+    
+    total_distance = steps_taken * move_step
+    return contact_detected, steps_taken, total_distance
+
+
 def execute_grasp_action(
     grasp_pose,
     dobot,
