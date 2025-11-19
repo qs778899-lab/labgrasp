@@ -310,6 +310,136 @@ def choose_grasp_pose(
     return pre_grasp_pose, grasp_pose, T_base_ee_ideal
 
 
+def detect_object_orientation(angle_camera, save_dir=None, max_attempts=100, verbose=True):
+    """
+    检测物体方向（例如玻璃棒的朝向）
+    
+    Args:
+        angle_camera: 用于角度检测的相机对象
+        save_dir: 保存检测图像的目录（可选）
+        max_attempts: 最大尝试次数
+        verbose: 是否打印详细信息
+    
+    Returns:
+        avg_angle: 检测到的平均角度（度）
+    """
+    from calculate_grasp_pose_from_object_pose import detect_dent_orientation
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("🔍 开始检测物体方向...")
+        print("="*60)
+    
+    detected_angles = None
+    avg_angle = 0.0
+    detection_attempts = 0
+    
+    while True:
+        detection_attempts += 1
+        
+        raw_image = angle_camera.get_current_frame()
+        if raw_image is None:
+            if verbose:
+                print(f"第{detection_attempts}次尝试: 等待相机数据...")
+            time.sleep(0.1)
+            continue
+        img_timestamp = time.time()
+        
+        if verbose:
+            print(f"\n📷 第{detection_attempts}次尝试: 检测新原始图像方向 (时间戳: {img_timestamp:.2f})")
+        
+        detected_angles, avg_angle = detect_dent_orientation(raw_image, save_dir=save_dir)
+        
+        if detected_angles:
+            if verbose:
+                print(f"成功检测到物体朝向角度: {detected_angles}, 平均: {avg_angle:.2f}°, 绝对值: {abs(avg_angle):.2f}°")
+                print("="*60)
+            break
+        else:
+            if verbose:
+                print("当前图像未检测到明显方向特征，继续等待...")
+            time.sleep(0.1)
+        
+        # 最大尝试次数限制
+        if detection_attempts >= max_attempts:
+            if verbose:
+                print(f"⚠️  警告: 达到最大尝试次数({max_attempts}次)，使用默认角度")
+            detected_angles = []
+            avg_angle = 0.0
+            break
+    
+    return avg_angle
+
+
+def adjust_object_orientation(
+    dobot,
+    avg_angle,
+    grasp_tilt_angle,
+    x_adjustment=0,
+    y_adjustment=0,
+    z_adjustment=-15,
+    move_speed=12,
+    acceleration=1,
+    wait_time=9.0,
+    verbose=True
+):
+    """
+    调整物体姿态至垂直桌面向下
+    
+    Args:
+        dobot: Dobot机械臂对象
+        avg_angle: 检测到的物体平均角度（度）
+        grasp_tilt_angle: 抓取时的倾斜角度（度）
+        x_adjustment: x方向调整量（毫米）
+        y_adjustment: y方向调整量（毫米）
+        z_adjustment: z方向调整量（毫米）
+        move_speed: 移动速度
+        acceleration: 加速度
+        wait_time: 等待时间（秒）
+        verbose: 是否打印详细信息
+    
+    Returns:
+        pose_target: 目标姿态 [x, y, z, rx, ry, rz]
+        pose_after_adjust: 调整后的实际姿态 [x, y, z, rx, ry, rz]
+    """
+    import rospy
+    
+    if verbose:
+        print("\n开始调整物体姿态至垂直桌面向下")
+    
+    pose_now = dobot.get_pose()
+    delta_ee = abs(avg_angle) - grasp_tilt_angle
+    
+    # 需要让tcp朝外旋转； grasp_tilt_angle为正值时，tcp会朝外旋转。
+    pose_target = [
+        pose_now[0] + x_adjustment,
+        pose_now[1] + y_adjustment,
+        pose_now[2] + z_adjustment,
+        pose_now[3] + delta_ee,
+        pose_now[4],
+        pose_now[5]
+    ]
+    
+    dobot.move_to_pose(
+        pose_target[0], pose_target[1], pose_target[2],
+        pose_target[3], pose_target[4], pose_target[5],
+        speed=move_speed,
+        acceleration=acceleration
+    )
+    
+    # 等待移动完成
+    wait_rate = rospy.Rate(1.0 / wait_time)
+    wait_rate.sleep()
+    
+    # 验证是否到达目标位置
+    pose_after_adjust = dobot.get_pose()
+    
+    if verbose:
+        print(f"姿态调整完成: Rx={pose_after_adjust[3]:.2f}° (目标: {pose_target[3]:.2f}°)")
+    
+    return pose_target, pose_after_adjust
+
+
 def execute_grasp_action(
     grasp_pose,
     dobot,
@@ -384,213 +514,8 @@ def execute_grasp_action(
         return False
 
 
-# def choose_grasp_pose(target,center_pose, cam_main:dict[str, Any],robot_main:dict[str, Any]):
-
-#     '''
-#     args:
-#         center_pose: 物体中心在相机坐标系中的位姿 (4x4 numpy array)
-#         cam: env.camera_main
-#         robot: env.robot_main
-#     Returns:
-#         grasp_pose: 抓取姿态 (4x4 numpy array)
-#     '''
-#     import json
-#     grasp_library = json.load(open('GraspLibrary.json', 'r'))
-#     grasp_params = grasp_library[target]
-
-    
-#     # load grasp params
-#     z_xoy_angle = grasp_params["z_xoy_angle"]
-#     vertical_euler = grasp_params["vertical_euler"]
-#     grasp_tilt_angle = grasp_params["grasp_tilt_angle"]
-#     angle_threshold = grasp_params["angle_threshold"]
-#     T_safe_distance = grasp_params["T_safe_distance"]
-#     z_safe_distance = grasp_params["z_safe_distance"]
-#     T_ee_cam = cam_main["T_ee_cam"]
-#     T_tcp_ee = robot_main["tcp2ee"] 
-
-#     # ------计算在机器人基系中的object pose------
-#     T_cam_object = SE3(center_pose, check=False)
-#     pose_now = robot_main["robot"].get_pose()  # 获取当前末端执行器位姿
-#     x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
-    
-    
-#     # 从当前机器人位姿构造变换矩阵 T_base_ee
-#     T_base_ee = SE3.Rt(
-#         SO3.RPY([rx_e, ry_e, rz_e], unit='deg', order='zyx'),
-#         np.array([x_e, y_e, z_e]) / 1000.0,  # 毫米转米
-#         check=False
-#     )
-    
-#     # 坐标变换链: T_base_cam = T_base_ee * T_ee_cam
-#     T_base_cam = T_base_ee * T_ee_cam
-#     T_base_obj = T_base_cam * T_cam_object
-    
-#     # ------object pose 调整------
-#     T_base_obj_array = np.array(T_base_obj, dtype=float)
-    
-#     # 1. 将object pose的z轴调整为垂直桌面朝上
-#     current_rotation_matrix = T_base_obj_array[:3, :3]
-#     current_z_axis = current_rotation_matrix[:3, 2]  # 提取当前z轴方向
-#     target_z_axis = np.array([0, 0, 1])  # 目标z轴方向（垂直向上）
-#     # 计算当前z轴与目标z轴的夹角
-#     z_angle_error = np.degrees(np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0)))
-    
-
-#     if z_angle_error > angle_threshold:
-        
-#         # 计算旋转轴（两向量叉乘）
-#         rotation_axis = np.cross(current_z_axis, target_z_axis)
-#         rotation_axis_norm = np.linalg.norm(rotation_axis)
-        
-#         if rotation_axis_norm < 1e-6:  # 两轴几乎平行
-#             rotation_matrix_new = current_rotation_matrix
-#         else:
-#             rotation_axis = rotation_axis / rotation_axis_norm  # 单位化旋转轴
-#             rotation_angle = np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0))
-#             # 构造反对称矩阵K（用于Rodrigues旋转公式）
-#             K = np.array([
-#                 [0, -rotation_axis[2], rotation_axis[1]],
-#                 [rotation_axis[2], 0, -rotation_axis[0]],
-#                 [-rotation_axis[1], rotation_axis[0], 0]
-#             ])
-#             # Rodrigues旋转公式: R = I + sin(θ)K + (1-cos(θ))K²
-#             R_z_align = np.eye(3) + np.sin(rotation_angle) * K + (1 - np.cos(rotation_angle)) * np.dot(K, K)
-#             rotation_matrix_new = np.dot(R_z_align, current_rotation_matrix)
-        
-#         T_base_obj_aligned = np.eye(4)
-#         T_base_obj_aligned[:3, :3] = rotation_matrix_new
-#         T_base_obj_aligned[:3, 3] = T_base_obj_array[:3, 3]
-#         T_base_obj_final = SE3(T_base_obj_aligned, check=False)
-#     else:
-#         T_base_obj_final = T_base_obj
-    
-#     # 2. 将object pose的x,y轴对齐到机器人基坐标系的x,y轴
-#     rotation_matrix_after_z = np.array(T_base_obj_final.R)
-#     current_x_axis = rotation_matrix_after_z[:3, 0]  # 提取当前x轴方向
-#     # 将x轴投影到水平面（xy平面）
-#     x_projected = np.array([current_x_axis[0], current_x_axis[1], 0])
-#     x_projected_norm = np.linalg.norm(x_projected)
-    
-#     if x_projected_norm > 1e-6:
-#         x_projected = x_projected / x_projected_norm  # 单位化投影向量
-#         # 计算投影与基坐标系x轴的夹角
-#         x_angle = np.arctan2(x_projected[1], x_projected[0])
-#         # 构造绕z轴旋转矩阵（消除该夹角）
-#         R_z_align_xy = np.array([
-#             [np.cos(-x_angle), -np.sin(-x_angle), 0],
-#             [np.sin(-x_angle), np.cos(-x_angle), 0],
-#             [0, 0, 1]
-#         ])
-#         rotation_matrix_final = np.dot(R_z_align_xy, rotation_matrix_after_z)
-#         T_base_obj_final_aligned = np.eye(4)
-#         T_base_obj_final_aligned[:3, :3] = rotation_matrix_final
-#         T_base_obj_final_aligned[:3, 3] = T_base_obj_array[:3, 3]
-#         T_base_obj_final = SE3(T_base_obj_final_aligned, check=False)
-
-    
-
-#     T_base_obj_array = T_base_obj_final.A
-#     current_rotation = T_base_obj_array[:3, :3]
-#     current_translation = T_base_obj_array[:3, 3]
-    
-#     # 构造绕z轴旋转的旋转矩阵
-#     theta = np.radians(z_xoy_angle)
-#     R_z = np.array([
-#         [np.cos(theta), -np.sin(theta), 0],
-#         [np.sin(theta), np.cos(theta), 0],
-#         [0, 0, 1]
-#     ])
-#     new_rotation = np.dot(R_z, current_rotation)  # 左乘以在基坐标系中旋转
-#     T_base_obj_rotated = np.eye(4)
-#     T_base_obj_rotated[:3, :3] = new_rotation
-#     T_base_obj_rotated[:3, 3] = current_translation
-#     T_base_obj_final = SE3(T_base_obj_rotated, check=False)
-    
-
-    
-#     # ------调整抓取姿态------
-#     # 在垂直抓取基础上叠加倾斜角度
-#     tilted_euler = [vertical_euler[0] + grasp_tilt_angle, vertical_euler[1], vertical_euler[2]]
-    
-
-#     # 从欧拉角构造抓取姿态（相对于物体坐标系）
-#     R_target_xyz = R.from_euler('xyz', tilted_euler, degrees=True)
-#     T_object_grasp_ideal = SE3.Rt(
-#         SO3(R_target_xyz.as_matrix()),
-#         [0, 0, 0],  # 抓取点在物体中心
-#         check=False
-#     )
-    
-
-    
-#     # ------计算在机器人基系中，夹爪grasp即tcp的抓取姿态------
-#     # 坐标变换链: T_base_grasp = T_base_obj * T_obj_grasp
-#     T_base_grasp_ideal = T_base_obj_final * T_object_grasp_ideal
-    
-
-    
-#     # ------计算在机器人基系中，末端执行器ee的抓取姿态------
-#     # TCP到末端执行器的偏移（z方向）
-#     T_tcp_ee = SE3(0, 0, T_tcp_ee)
-#     T_safe_distance = SE3(0, 0, T_safe_distance)  # 额外安全距离
-#     # 变换链: T_base_ee = T_base_grasp * T_grasp_tcp * T_tcp_ee * T_safe
-#     T_base_ee_ideal = T_base_grasp_ideal * T_tcp_ee * T_safe_distance
-    
-#     # ------执行抓取动作------
-#     pos_mm = T_base_ee_ideal.t * 1000  # 转换为毫米
-#     # 提取ZYX欧拉角（机械臂使用的旋转顺序）
-#     rx, ry, rz = T_base_ee_ideal.rpy(unit='deg', order='zyx')
-
-#     def normalize_angle(angle):
-#         """将角度规范化到[-180, 180]范围"""
-#         angle = angle % 360  # 先转换为[0, 360)范围
-#         if angle > 180:
-#             return angle - 360
-#         return angle
-
-#     rz = normalize_angle(rz)  # 规范化到[-180, 180]度
-    
-#     pre_grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2]+z_safe_distance, rx, ry, rz]
-#     grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2], rx, ry, rz]
-
-
-#     return pre_grasp_pose, grasp_pose
-
-
-
-
 
   
-
-
-
-
-"""
-从物体位姿计算并执行抓取动作
-
-Args:
-    center_pose_array: 物体中心在相机坐标系中的位姿 (4x4 numpy array)
-    dobot: Dobot机械臂对象 初始对象
-    gripper: 夹爪对象 初始对象
-    T_ee_cam: 相机到末端执行器的变换矩阵 (SE3对象) 数据库
-    z_xoy_angle: 物体绕z轴旋转角度，用于调整抓取接近方向 (度)  动态调整
-    vertical_euler: 垂直向下抓取的grasp姿态的的欧拉角 [rx, ry, rz] (度)，默认[-180, 0, -90] 先验
-    grasp_tilt_angle: 倾斜抓取角度 (度)，叠加在vertical_euler[0]上, 由垂直向下抓取旋转为斜着向下抓取的grasp姿态的旋转角度. 先验
-    angle_threshold: z轴对齐的角度阈值 (度) 定数
-    T_tcp_ee_z: TCP到末端执行器的z轴偏移 (米) 数据库
-    T_safe_distance: 安全距离，防止抓取时与物体碰撞 (米)  先验
-    # z_safe_distance: 最终移动时z方向的额外安全距离,也是为了抓取物体靠上的部分。 (毫米)
-    gripper_close_pos: 夹爪闭合位置 (0-1000)，默认80 先验
-    enable_gripper: 是否执行夹爪抓取动作，默认True 
-    verbose: 是否打印详细信息
-
-Returns:
-    success: 是否成功执行抓取
-    T_base_ee_ideal: 计算得到的理想末端执行器位姿 (SE3对象)
-"""
-    
-
 
 
 
