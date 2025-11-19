@@ -135,8 +135,8 @@ if __name__ == "__main__":
     contact_camera = CameraReader(camera_id=11, init_camera=True) #! 用于触碰检测的USB相机 
 
 
-    # 将center_pose转换为numpy数组
-    center_pose_array = np.array(center_pose, dtype=float)
+    
+    center_pose_array = np.array(center_pose, dtype=float)  # 将center_pose转换为numpy数组
     # 从 GraspLibrary 获取抓取参数
     z_xoy_angle = grasp_params["z_xoy_angle"]
     vertical_euler = grasp_params["vertical_euler"]

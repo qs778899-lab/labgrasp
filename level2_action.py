@@ -25,6 +25,7 @@ try:
 except ImportError:
     pass # Assume they are available via estimater
 from dino_mask import get_mask_from_GD
+from qwen_mask import get_mask_from_qwen
 
 # from calculate_grasp_pose_from_object_pose import calculate_grasp_pose_from_object_pose as choose_grasp_pose
 from Utils import *
@@ -98,7 +99,8 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
             
             # 每隔15帧进行一次FoundationPose检测
             if frame_count % 15 == 0:
-                mask = get_mask_from_GD(color, target)
+                # mask = get_mask_from_GD(color, target)
+                mask = get_mask_from_qwen(color, target)
             
                 cv2.imshow("mask", mask)
                 cv2.imshow("color", color)
