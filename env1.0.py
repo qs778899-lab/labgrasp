@@ -22,26 +22,11 @@ from create_camera import CreateRealsense
 
 
 class create_env:
-    def __init__(self, config_pth, init_robot=True):
-        """
-        初始化环境
-        
-        Args:
-            config_pth: 配置文件路径
-            init_robot: 是否在初始化时自动初始化机器人，默认为True
-                       - True: 自动调用 init_robot1() 初始化机器人和夹爪
-                       - False: 不初始化机器人，可以稍后手动调用 init_dobot()
-        """
+    def __init__(self,config_pth):
         with open(config_pth, 'r') as file:
             self.config = json.load(file)
 
-        # 根据参数决定是否自动初始化
-        if init_robot:
-            self.robot1, self.gripper = self.init_robot1()
-        else:
-            self.robot1 = None
-            self.gripper = None
-        
+        self.robot1, self.gripper = self.init_robot1()
         self.camera1_main = self.init_camera()
 
 

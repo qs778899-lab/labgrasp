@@ -100,12 +100,16 @@ if __name__ == "__main__":
     # print(f"角度数据将保存到: {angle_log_path}")
 
     # 使用 env.py 初始化环境（包含机械臂、相机等）
-    env = create_env("config.json")
-    robot_main = env.robot1
-    dobot = robot_main["robot"]
-    gripper = env.gripper
+   
+    env = create_env("config.json", init_robot=False)  # init_robot=False 表示不在创建 env 时自动初始化机器人
+    dobot = env.init_dobot()
+
+    # env = create_env("config.json")
+    # robot_main = env.robot1
+    # dobot = robot_main["robot"]
+    # gripper = env.gripper
     camera_main = env.camera1_main
-    camera = camera_main["cam"]  # 为清理函数设置全局变量
+    camera = camera_main["cam"]  
     T_ee_cam = camera_main["T_ee_cam"]
     
     # 从 GraspLibrary.json 加载抓取参数
@@ -120,13 +124,13 @@ if __name__ == "__main__":
     
     # mesh_file = "mesh/cube.obj"
     # mesh_file = "mesh/thin_cube.obj"
-    mesh_file = "mesh/cube_1_20.obj"
-    # 调用封装好的函数检测物体位姿
-    center_pose = detect_object_pose_using_foundation_pose(
-        target=target_object,
-        mesh_path=mesh_file,
-        cam=camera_main  # 使用 env 初始化的 camera_main，包含 cam 和 cam_k
-    )
+    # mesh_file = "mesh/cube_1_20.obj"
+    # # 调用封装好的函数检测物体位姿
+    # center_pose = detect_object_pose_using_foundation_pose(
+    #     target=target_object,
+    #     mesh_path=mesh_file,
+    #     cam=camera_main  # 使用 env 初始化的 camera_main，包含 cam 和 cam_k
+    # )
 
 
     key = cv2.waitKey(1)
@@ -135,7 +139,10 @@ if __name__ == "__main__":
     contact_camera = CameraReader(camera_id=11, init_camera=True) #! 用于触碰检测的USB相机 
 
 
-    
+    center_pose = [[0.8155072, 0.57407063, -0.07343091, 0.1],
+                                [0.57838976, -0.8128748, 0.06854292, 0.2],
+                                [-0.02034182, -0.09836861, -0.99494296, 0.3],
+                                [0, 0, 0, 1]]
     center_pose_array = np.array(center_pose, dtype=float)  # 将center_pose转换为numpy数组
     # 从 GraspLibrary 获取抓取参数
     z_xoy_angle = grasp_params["z_xoy_angle"]
@@ -146,42 +153,42 @@ if __name__ == "__main__":
     z_safe_distance = grasp_params["z_safe_distance"]
     gripper_close_pos = grasp_params["gripper_close_pos"]
     
-    # 计算抓取姿态
-    pre_grasp_pose, grasp_pose, T_base_ee_ideal = choose_grasp_pose(
-        center_pose_array=center_pose_array,
-        dobot=dobot,
-        T_ee_cam=T_ee_cam,
-        z_xoy_angle=z_xoy_angle,
-        vertical_euler=vertical_euler,
-        grasp_tilt_angle=grasp_tilt_angle,
-        angle_threshold=angle_threshold,
-        T_tcp_ee_z=-0.16,
-        T_safe_distance=T_safe_distance,
-        z_safe_distance=z_safe_distance,
-        verbose=True
-    )
+    # # 计算抓取姿态
+    # pre_grasp_pose, grasp_pose, T_base_ee_ideal = choose_grasp_pose(
+    #     center_pose_array=center_pose_array,
+    #     dobot=dobot,
+    #     T_ee_cam=T_ee_cam,
+    #     z_xoy_angle=z_xoy_angle,
+    #     vertical_euler=vertical_euler,
+    #     grasp_tilt_angle=grasp_tilt_angle,
+    #     angle_threshold=angle_threshold,
+    #     T_tcp_ee_z=-0.16,
+    #     T_safe_distance=T_safe_distance,
+    #     z_safe_distance=z_safe_distance,
+    #     verbose=True
+    # )
     
-    # 执行抓取动作
-    success = execute_grasp_action(
-        grasp_pose=grasp_pose,
-        dobot=dobot,
-        gripper=gripper,
-        gripper_close_pos=gripper_close_pos,
-        move_speed=8,
-        gripper_force=10,
-        gripper_speed=30,
-        verbose=True
-    )
+    # # 执行抓取动作
+    # success = execute_grasp_action(
+    #     grasp_pose=grasp_pose,
+    #     dobot=dobot,
+    #     gripper=gripper,
+    #     gripper_close_pos=gripper_close_pos,
+    #     move_speed=8,
+    #     gripper_force=10,
+    #     gripper_speed=30,
+    #     verbose=True
+    # )
 
     wait_grasp = rospy.Rate(1.0 / 3)
     wait_grasp.sleep()
     
     pose_now = dobot.get_pose()
     x_adjustment = 0
-    y_adjustment = 130
-    z_adjustment = 170
+    y_adjustment = 0
+    z_adjustment = 0
     dobot.move_to_pose(pose_now[0]+x_adjustment, pose_now[1]+y_adjustment, pose_now[2]+z_adjustment, pose_now[3], pose_now[4], pose_now[5], speed=7, acceleration=1) 
-
+    # input("break001")
 
 # #-----------开始检测玻璃棒方向-------------------------------------------------------
 #     avg_angle = detect_object_orientation(
@@ -194,7 +201,7 @@ if __name__ == "__main__":
 #     wait_detect = rospy.Rate(1.0 / 1)
 #     wait_detect.sleep()
 
-    tilt_angle = 70
+    tilt_angle = 65
 #-----------开始调整玻璃棒姿态倾斜向下-------------------------------------------------------
     pose_target, pose_after_adjust = adjust_object_orientation(
         dobot=dobot,
