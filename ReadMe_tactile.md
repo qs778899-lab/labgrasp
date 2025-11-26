@@ -136,4 +136,11 @@ test_ros_subscriber.py: 测试能否正常接收realtime_object_tracking.py发�
 2. 夹爪无法连接
 因程序中断多次需要重启机械臂
 
-3. 
+3. 创建虚拟相机时找不到相机
+
+        原因1：
+        sudo fuser -v /dev/video*
+        kill +进程号
+
+        原因2:
+        utils/check_camera_id.py中有max_cameras_to_check数量上限

@@ -22,7 +22,7 @@ from create_camera import CreateRealsense
 
 
 class create_env:
-    def __init__(self, config_pth, init_robot=True):
+    def __init__(self, config_pth, init_robot=True, camera_id="camera_1"):
         """
         初始化环境
         
@@ -31,6 +31,7 @@ class create_env:
             init_robot: 是否在初始化时自动初始化机器人，默认为True
                        - True: 自动调用 init_robot1() 初始化机器人和夹爪
                        - False: 不初始化机器人，可以稍后手动调用 init_dobot()
+            camera_id: 相机配置ID，默认为"camera_1"，可选"camera_3"等
         """
         with open(config_pth, 'r') as file:
             self.config = json.load(file)
@@ -42,12 +43,21 @@ class create_env:
             self.robot1 = None
             self.gripper = None
         
-        self.camera1_main = self.init_camera()
+        self.camera1_main = self.init_camera(camera_id)
 
 
 
-    def init_camera(self):
-        camera_cfg = self.config['camera_1']
+    def init_camera(self, camera_id="camera_1"):
+        """
+        初始化相机
+        
+        Args:
+            camera_id: 相机配置ID，默认为"camera_1"
+        
+        Returns:
+            camera_main: 包含相机对象、变换矩阵和内参的字典
+        """
+        camera_cfg = self.config[camera_id]
         camera = CreateRealsense(camera_cfg['id'])
         camera_rt = SE3.Rt(
             np.array(camera_cfg['T_ee_cam']['rotation_matrix']),

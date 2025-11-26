@@ -100,7 +100,7 @@ if __name__ == "__main__":
     # print(f"角度数据将保存到: {angle_log_path}")
 
     # 使用 env.py 初始化环境（包含机械臂、相机等）
-    env = create_env("config.json")
+    env = create_env("config.json", camera_id="camera_1")
     robot_main = env.robot1
     dobot = robot_main["robot"]
     gripper = env.gripper
@@ -128,11 +128,13 @@ if __name__ == "__main__":
         cam=camera_main  # 使用 env 初始化的 camera_main，包含 cam 和 cam_k
     )
 
+    
+
 
     key = cv2.waitKey(1)
     #! 检查id是否对应
-    angle_camera = CameraReader(camera_id=10, init_camera=True)   #! 用于角度检测的USB相机 
-    contact_camera = CameraReader(camera_id=11, init_camera=True) #! 用于触碰检测的USB相机 
+    angle_camera = CameraReader(camera_id=16, init_camera=True)   #! 用于角度检测的USB相机 
+    contact_camera = CameraReader(camera_id=17, init_camera=True) #! 用于触碰检测的USB相机 
 
 
     

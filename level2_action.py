@@ -117,7 +117,9 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
                 mask_path = os.path.join(save_dir, f"mask_frame_{frame_count:06d}.png")
                 vis_path = os.path.join(save_dir, f"vis_frame_{frame_count:06d}.png")
                 cv2.imwrite(mask_path, mask)
-                cv2.imwrite(vis_path, vis[...,::-1])                
+                cv2.imwrite(vis_path, vis[...,::-1])    
+
+                # input("break01")            
 
                 #? 清理内存
                 torch.cuda.empty_cache()
