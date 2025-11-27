@@ -20,6 +20,7 @@ class CameraReader:
         self.cap = None
         self.init_image = None
         self.init_image_info = {}
+        self.current_resolution = None  # (width, height)
         
         # 尝试打开相机（可选）
         if init_camera:
@@ -34,6 +35,13 @@ class CameraReader:
                 print(f"无法打开相机 {self.camera_id}")
                 return False
             
+            # 记录相机当前分辨率（如果驱动支持）
+            # width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            # height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # if width > 0 and height > 0:
+            #     self.current_resolution = (width, height)
+            #     print(f"当前相机分辨率: {width}x{height}")  
+
             # 读取初始图像
             ret, frame = self.cap.read()
             if ret:
@@ -95,6 +103,10 @@ class CameraReader:
     def get_init_image_info(self):
         """获取初始影像信息"""
         return self.init_image_info
+    
+    def get_resolution(self):
+        """获取当前相机分辨率 (width, height)，若未知则返回None"""
+        return self.current_resolution
     
     def get_current_image_info(self):
         """获取当前帧的影像信息"""

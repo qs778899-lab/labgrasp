@@ -29,7 +29,7 @@ from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
 ###from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 from camera_reader import CameraReader
-from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface
+from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose_with_cam3, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface
 from env import create_env
 import rospy
 from std_msgs.msg import Float64MultiArray
@@ -100,13 +100,13 @@ if __name__ == "__main__":
     # print(f"角度数据将保存到: {angle_log_path}")
 
     # 使用 env.py 初始化环境（包含机械臂、相机等）
-    env = create_env("config.json", camera_id="camera_1")
+    env = create_env("config.json", camera_id="camera_3")
     robot_main = env.robot1
     dobot = robot_main["robot"]
     gripper = env.gripper
     camera_main = env.camera1_main
     camera = camera_main["cam"]  # 为清理函数设置全局变量
-    T_ee_cam = camera_main["T_ee_cam"]
+    T_base_cam = camera_main["T_ee_cam"]
     
     # 从 GraspLibrary.json 加载抓取参数
     target_object = "stirring rod"  # 可以修改为: "red cylinder", "red stirring rod", "stirring rod"
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         mesh_path=mesh_file,
         cam=camera_main  # 使用 env 初始化的 camera_main，包含 cam 和 cam_k
     )
-
+    
     
 
 
@@ -149,10 +149,10 @@ if __name__ == "__main__":
     gripper_close_pos = grasp_params["gripper_close_pos"]
     
     # 计算抓取姿态
-    pre_grasp_pose, grasp_pose, T_base_ee_ideal = choose_grasp_pose(
+    pre_grasp_pose, grasp_pose, T_base_ee_ideal = choose_grasp_pose_with_cam3(
         center_pose_array=center_pose_array,
         dobot=dobot,
-        T_ee_cam=T_ee_cam,
+        T_base_cam=T_base_cam,
         z_xoy_angle=z_xoy_angle,
         vertical_euler=vertical_euler,
         grasp_tilt_angle=grasp_tilt_angle,

@@ -119,7 +119,8 @@ def detect_object_pose_using_foundation_pose(target:str,mesh_path,cam:dict[str, 
                 cv2.imwrite(mask_path, mask)
                 cv2.imwrite(vis_path, vis[...,::-1])    
 
-                # input("break01")            
+                # input("break01")         
+                # print("break01")   
 
                 #? 清理内存
                 torch.cuda.empty_cache()
@@ -205,6 +206,169 @@ def choose_grasp_pose(
     
     # 坐标变换链: T_base_cam = T_base_ee * T_ee_cam
     T_base_cam = T_base_ee * T_ee_cam
+    T_base_obj = T_base_cam * T_cam_object
+    
+    # ------object pose 调整------
+    T_base_obj_array = np.array(T_base_obj, dtype=float)
+    
+    # 1. 将object pose的z轴调整为垂直桌面朝上
+    current_rotation_matrix = T_base_obj_array[:3, :3]
+    current_z_axis = current_rotation_matrix[:3, 2]
+    target_z_axis = np.array([0, 0, 1])
+    z_angle_error = np.degrees(np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0)))
+    
+    if z_angle_error > angle_threshold:
+        rotation_axis = np.cross(current_z_axis, target_z_axis)
+        rotation_axis_norm = np.linalg.norm(rotation_axis)
+        
+        if rotation_axis_norm < 1e-6:
+            rotation_matrix_new = current_rotation_matrix
+        else:
+            rotation_axis = rotation_axis / rotation_axis_norm
+            rotation_angle = np.arccos(np.clip(np.dot(current_z_axis, target_z_axis), -1.0, 1.0))
+            K = np.array([
+                [0, -rotation_axis[2], rotation_axis[1]],
+                [rotation_axis[2], 0, -rotation_axis[0]],
+                [-rotation_axis[1], rotation_axis[0], 0]
+            ])
+            R_z_align = np.eye(3) + np.sin(rotation_angle) * K + (1 - np.cos(rotation_angle)) * np.dot(K, K)
+            rotation_matrix_new = np.dot(R_z_align, current_rotation_matrix)
+        
+        T_base_obj_aligned = np.eye(4)
+        T_base_obj_aligned[:3, :3] = rotation_matrix_new
+        T_base_obj_aligned[:3, 3] = T_base_obj_array[:3, 3]
+        T_base_obj_final = SE3(T_base_obj_aligned, check=False)
+    else:
+        T_base_obj_final = T_base_obj
+    
+    # 2. 将object pose的x,y轴对齐到机器人基坐标系的x,y轴
+    rotation_matrix_after_z = np.array(T_base_obj_final.R)
+    current_x_axis = rotation_matrix_after_z[:3, 0]
+    x_projected = np.array([current_x_axis[0], current_x_axis[1], 0])
+    x_projected_norm = np.linalg.norm(x_projected)
+    
+    if x_projected_norm > 1e-6:
+        x_projected = x_projected / x_projected_norm
+        x_angle = np.arctan2(x_projected[1], x_projected[0])
+        R_z_align_xy = np.array([
+            [np.cos(-x_angle), -np.sin(-x_angle), 0],
+            [np.sin(-x_angle), np.cos(-x_angle), 0],
+            [0, 0, 1]
+        ])
+        rotation_matrix_final = np.dot(R_z_align_xy, rotation_matrix_after_z)
+        T_base_obj_final_aligned = np.eye(4)
+        T_base_obj_final_aligned[:3, :3] = rotation_matrix_final
+        T_base_obj_final_aligned[:3, 3] = T_base_obj_array[:3, 3]
+        T_base_obj_final = SE3(T_base_obj_final_aligned, check=False)
+    
+    # 3. 将object pose绕z轴旋转指定角度
+    T_base_obj_array = T_base_obj_final.A
+    current_rotation = T_base_obj_array[:3, :3]
+    current_translation = T_base_obj_array[:3, 3]
+    
+    theta = np.radians(z_xoy_angle)
+    R_z = np.array([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta), np.cos(theta), 0],
+        [0, 0, 1]
+    ])
+    new_rotation = np.dot(R_z, current_rotation)
+    T_base_obj_rotated = np.eye(4)
+    T_base_obj_rotated[:3, :3] = new_rotation
+    T_base_obj_rotated[:3, 3] = current_translation
+    T_base_obj_final = SE3(T_base_obj_rotated, check=False)
+    
+    # ------调整抓取姿态------
+    tilted_euler = [vertical_euler[0] + grasp_tilt_angle, vertical_euler[1], vertical_euler[2]]
+    
+    R_target_xyz = R.from_euler('xyz', tilted_euler, degrees=True)
+    T_object_grasp_ideal = SE3.Rt(
+        SO3(R_target_xyz.as_matrix()),
+        [0, 0, 0],
+        check=False
+    )
+    
+    # ------计算在机器人基系中，夹爪grasp即tcp的抓取姿态------
+    T_base_grasp_ideal = T_base_obj_final * T_object_grasp_ideal
+    
+    # ------计算在机器人基系中，末端执行器ee的抓取姿态------
+    T_tcp_ee = SE3(0, 0, T_tcp_ee_z)
+    T_safe_distance_se3 = SE3(0, 0, T_safe_distance)
+    T_base_ee_ideal = T_base_grasp_ideal * T_tcp_ee * T_safe_distance_se3
+    
+    # ------提取位置和姿态------
+    pos_mm = T_base_ee_ideal.t * 1000  # 转换为毫米
+    rx, ry, rz = T_base_ee_ideal.rpy(unit='deg', order='zyx')
+    rz = normalize_angle(rz)  # 规范化到[-180, 180]度
+    
+    pos_mm[2] += z_safe_distance  # 添加z方向额外安全距离
+    
+    grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2], rx, ry, rz]
+
+    pre_distance = 20
+    pre_grasp_pose = [pos_mm[0], pos_mm[1], pos_mm[2]+ pre_distance, rx, ry, rz]
+    
+    if verbose:
+        print(f"计算完成 - 目标位置: [{pos_mm[0]:.2f}, {pos_mm[1]:.2f}, {pos_mm[2]:.2f}] mm")
+        print(f"计算完成 - 目标姿态: rx={rx:.2f}°, ry={ry:.2f}°, rz={rz:.2f}°")
+    
+    return pre_grasp_pose, grasp_pose, T_base_ee_ideal
+
+def choose_grasp_pose_with_cam3(
+    center_pose_array,
+    dobot,
+    T_base_cam,
+    z_xoy_angle,
+    vertical_euler,
+    grasp_tilt_angle,
+    angle_threshold,
+    T_tcp_ee_z,
+    T_safe_distance,
+    z_safe_distance,
+    verbose=True
+):
+    """
+    从物体位姿计算抓取姿态（不执行移动，只计算）
+    
+    Args:
+        center_pose_array: 物体中心在相机坐标系中的位姿 (4x4 numpy array)
+        dobot: Dobot机械臂对象
+        T_ee_cam: 相机到末端执行器的变换矩阵 (SE3对象)
+        z_xoy_angle: 物体绕z轴旋转角度，用于调整抓取接近方向 (度)
+        vertical_euler: 垂直向下抓取的grasp姿态的的欧拉角 [rx, ry, rz] (度)
+        grasp_tilt_angle: 倾斜抓取角度 (度)
+        angle_threshold: z轴对齐的角度阈值 (度)
+        T_tcp_ee_z: TCP到末端执行器的z轴偏移 (米)
+        T_safe_distance: 安全距离，防止抓取时与物体碰撞 (米)
+        z_safe_distance: 最终移动时z方向的额外安全距离 (毫米)
+        verbose: 是否打印详细信息
+    
+    Returns:
+        grasp_pose: 抓取位置和姿态 [x, y, z, rx, ry, rz] (毫米和度)
+        T_base_ee_ideal: 计算得到的理想末端执行器位姿 (SE3对象)
+    """
+    from scipy.spatial.transform import Rotation as R
+    from grasp_utils import normalize_angle
+    
+    if vertical_euler is None:
+        vertical_euler = [-180, 0, -90]
+    
+    if verbose:
+        print("开始计算抓取姿态...")
+    
+    # ------计算在机器人基系中的object pose------
+    T_cam_object = SE3(center_pose_array, check=False)
+    pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
+    x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
+    
+    # # 从当前机器人位姿构造变换矩阵 T_base_ee
+    # T_base_ee = SE3.Rt(
+    #     SO3.RPY([rx_e, ry_e, rz_e], unit='deg', order='zyx'),
+    #     np.array([x_e, y_e, z_e]) / 1000.0,  # 毫米转米
+    #     check=False
+    # )
+    
+    
     T_base_obj = T_base_cam * T_cam_object
     
     # ------object pose 调整------
