@@ -93,6 +93,10 @@ def execute_grasp_from_object_pose(
     # if verbose:
     #     print("\n[检查] 物体在机器人基坐标系中的位姿:")
     #     print_pose_info(T_base_obj, "物体位姿 (机器人基坐标系)")
+    # T_base_cam_array = np.array(T_base_cam, dtype=float)
+    # print("T_base_cam_array: ", T_base_cam_array)
+    # print("break for cam")
+    # input("break for cam")
     
     # ------object pose 调整------
     T_base_obj_array = np.array(T_base_obj, dtype=float)

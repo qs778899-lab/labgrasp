@@ -207,6 +207,12 @@ def choose_grasp_pose(
     # 坐标变换链: T_base_cam = T_base_ee * T_ee_cam
     T_base_cam = T_base_ee * T_ee_cam
     T_base_obj = T_base_cam * T_cam_object
+
+
+    # T_base_cam_array = np.array(T_base_cam, dtype=float)
+    # print("T_base_cam_array: ", T_base_cam_array)
+    # print("break for cam")
+    # input("break for cam")
     
     # ------object pose 调整------
     T_base_obj_array = np.array(T_base_obj, dtype=float)
