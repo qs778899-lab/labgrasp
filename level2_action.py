@@ -209,8 +209,8 @@ def choose_grasp_pose(
     T_base_obj = T_base_cam * T_cam_object
 
 
-    # T_base_cam_array = np.array(T_base_cam, dtype=float)
-    # print("T_base_cam_array: ", T_base_cam_array)
+    T_base_cam_array = np.array(T_base_cam, dtype=float)
+    print("T_base_cam_array: ", T_base_cam_array)
     # print("break for cam")
     # input("break for cam")
     
