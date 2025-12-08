@@ -175,12 +175,83 @@ if __name__ == "__main__":
         anchor_poses, target_count=total_waypoints, direction=path_direction
     )
 
+    # 创建数据采集目录和CSV文件
+    collection_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    collection_dir = os.path.join("record_rotation_collection", collection_timestamp)
+    os.makedirs(collection_dir, exist_ok=True)
+    print(f"数据将保存到: {collection_dir}")
+
+    csv_path = os.path.join(collection_dir, f"{collection_timestamp}.csv")
+    with open(csv_path, 'w') as csv_file:
+        csv_file.write("step,timestamp,x,y,z,rx,ry,rz,color_path,depth_path,ir1_off_path,ir2_off_path,ir1_on_path,ir2_on_path\n")
+
+    # 获取相机传感器以控制 emitter
+    cam_sensor = camera.profile.get_device().query_sensors()[0]
+
     print(f"Generated {total_waypoints} waypoints ({path_direction}):")
     for idx, pose in enumerate(interpolated_waypoints, start=1):
         rounded_pose = [round(value, 3) for value in pose]
         print(f"{idx:02d}: {rounded_pose}")
 
-    for pose in interpolated_waypoints:
+        # 移动机械臂到目标位姿
+        dobot.move_to_pose(rounded_pose[0], rounded_pose[1], rounded_pose[2], rounded_pose[3], rounded_pose[4], rounded_pose[5], speed=15, acceleration=3)  
+        
+        # 等待机械臂稳定
         wait = rospy.Rate(1.0 / 6)
         wait.sleep()
-        dobot.move_to_pose(pose)  
+
+        # --- 采集图像 ---
+        step_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        prefix = f"{idx:02d}_{step_timestamp}"
+
+        # 1) emitter OFF: 采集 depth, color, ir1_off, ir2_off
+        cam_sensor.set_option(rs.option.emitter_enabled, 0)
+        time.sleep(0.1)  # 等待 emitter 状态稳定
+        frames_off = camera.get_frames()
+        if frames_off is None:
+            print(f"  警告: 第 {idx} 步 emitter OFF 帧获取失败")
+            continue
+
+        color_img = frames_off['color']
+        depth_img = frames_off['depth']
+        ir1_off_img = frames_off['ir1']
+        ir2_off_img = frames_off['ir2']
+
+        # 2) emitter ON: 采集 ir1_on, ir2_on
+        cam_sensor.set_option(rs.option.emitter_enabled, 1)
+        time.sleep(0.1)
+        frames_on = camera.get_frames()
+        if frames_on is None:
+            print(f"  警告: 第 {idx} 步 emitter ON 帧获取失败")
+            continue
+
+        ir1_on_img = frames_on['ir1']
+        ir2_on_img = frames_on['ir2']
+
+        # 恢复 emitter OFF（根据原始配置）
+        cam_sensor.set_option(rs.option.emitter_enabled, 0)
+
+        # --- 保存图像 ---
+        color_path = os.path.join(collection_dir, f"{prefix}_color.jpg")
+        depth_path = os.path.join(collection_dir, f"{prefix}_depth.png")
+        ir1_off_path = os.path.join(collection_dir, f"{prefix}_ir1_off.png")
+        ir2_off_path = os.path.join(collection_dir, f"{prefix}_ir2_off.png")
+        ir1_on_path = os.path.join(collection_dir, f"{prefix}_ir1_on.png")
+        ir2_on_path = os.path.join(collection_dir, f"{prefix}_ir2_on.png")
+
+        cv2.imwrite(color_path, color_img)
+        cv2.imwrite(depth_path, depth_img)
+        cv2.imwrite(ir1_off_path, ir1_off_img)
+        cv2.imwrite(ir2_off_path, ir2_off_img)
+        cv2.imwrite(ir1_on_path, ir1_on_img)
+        cv2.imwrite(ir2_on_path, ir2_on_img)
+
+        # --- 追加 CSV 记录 ---
+        with open(csv_path, 'a') as csv_file:
+            csv_file.write(f"{idx},{step_timestamp},{rounded_pose[0]},{rounded_pose[1]},{rounded_pose[2]},{rounded_pose[3]},{rounded_pose[4]},{rounded_pose[5]},{color_path},{depth_path},{ir1_off_path},{ir2_off_path},{ir1_on_path},{ir2_on_path}\n")
+
+        print(f"  已保存第 {idx} 步图像")
+
+    print(f"\n数据采集完成，共 {total_waypoints} 步，保存于: {collection_dir}")
+    print(f"CSV 文件: {csv_path}")
+
