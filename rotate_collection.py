@@ -197,12 +197,12 @@ if __name__ == "__main__":
         dobot.move_to_pose(rounded_pose[0], rounded_pose[1], rounded_pose[2], rounded_pose[3], rounded_pose[4], rounded_pose[5], speed=15, acceleration=3)  
         
         # 等待机械臂稳定
-        wait = rospy.Rate(1.0 / 6)
+        wait = rospy.Rate(1.0 / 5)
         wait.sleep()
 
         # --- 采集图像 ---
         step_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        prefix = f"{idx:02d}_{step_timestamp}"
+        prefix = f"{idx:02d}"  # 简化文件名，只用步骤编号
 
         # 1) emitter OFF: 采集 depth, color, ir1_off, ir2_off
         cam_sensor.set_option(rs.option.emitter_enabled, 0)
@@ -213,7 +213,7 @@ if __name__ == "__main__":
             continue
 
         color_img = frames_off['color']
-        depth_img = frames_off['depth']
+        depth_img = frames_off['depth']/1000 #!单位换算
         ir1_off_img = frames_off['ir1']
         ir2_off_img = frames_off['ir2']
 
