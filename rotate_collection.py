@@ -29,7 +29,7 @@ from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
 ###from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 from camera_reader import CameraReader
-from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface
+from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface, get_T_base_cam_array
 from env import create_env
 import rospy
 from std_msgs.msg import Float64MultiArray
@@ -183,10 +183,27 @@ if __name__ == "__main__":
 
     csv_path = os.path.join(collection_dir, f"{collection_timestamp}.csv")
     with open(csv_path, 'w') as csv_file:
-        csv_file.write("step,timestamp,x,y,z,rx,ry,rz,color_path,depth_path,ir1_off_path,ir2_off_path,ir1_on_path,ir2_on_path\n")
+        csv_file.write("step,timestamp,x,y,z,rx,ry,rz,color_path,depth_path,ir1_off_path,ir2_off_path,ir1_on_path,ir2_on_path,T_base_camera\n")
 
     # 获取相机传感器以控制 emitter
     cam_sensor = camera.profile.get_device().query_sensors()[0]
+
+    center_pose_array = [ [1,1,1,1], 
+                            [1,1,1,1], 
+                            [1,1,1,1], 
+                            [1,1,1,1]
+                            ]
+    # 从 GraspLibrary 获取抓取参数
+    z_xoy_angle = grasp_params["z_xoy_angle"]
+    vertical_euler = grasp_params["vertical_euler"]
+    grasp_tilt_angle = grasp_params["grasp_tilt_angle"]
+    angle_threshold = grasp_params["angle_threshold"]
+    T_safe_distance = grasp_params["T_safe_distance"]
+    z_safe_distance = grasp_params["z_safe_distance"]
+    gripper_close_pos = grasp_params["gripper_close_pos"]
+    
+    
+
 
     print(f"Generated {total_waypoints} waypoints ({path_direction}):")
     for idx, pose in enumerate(interpolated_waypoints, start=1):
@@ -213,23 +230,33 @@ if __name__ == "__main__":
             continue
 
         color_img = frames_off['color']
-        depth_img = frames_off['depth']/1000 #!单位换算
+        depth_img = frames_on['depth']/1000   #! 单位换算
         ir1_off_img = frames_off['ir1']
         ir2_off_img = frames_off['ir2']
 
-        # 2) emitter ON: 采集 ir1_on, ir2_on
+        # 2) emitter ON: 采集 depth, ir1_on, ir2_on
         cam_sensor.set_option(rs.option.emitter_enabled, 1)
-        time.sleep(0.1)
+        wait_sensor = rospy.Rate(1.0 / 0.5)
+        wait_sensor.sleep()
         frames_on = camera.get_frames()
         if frames_on is None:
             print(f"  警告: 第 {idx} 步 emitter ON 帧获取失败")
             continue
 
+        
         ir1_on_img = frames_on['ir1']
         ir2_on_img = frames_on['ir2']
 
         # 恢复 emitter OFF（根据原始配置）
         cam_sensor.set_option(rs.option.emitter_enabled, 0)
+        wait_sensor = rospy.Rate(1.0 / 0.1)
+        wait_sensor.sleep()
+
+        T_base_camera1 = get_T_base_cam_array(
+        center_pose_array=center_pose_array,
+        dobot=dobot,
+        T_ee_cam=T_ee_cam
+        )
 
         # --- 保存图像 ---
         color_path = os.path.join(collection_dir, f"{prefix}_color.jpg")
@@ -247,8 +274,11 @@ if __name__ == "__main__":
         cv2.imwrite(ir2_on_path, ir2_on_img)
 
         # --- 追加 CSV 记录 ---
+        # 将 4x4 矩阵转为 JSON 字符串保存，保留原始结构
+        T_matrix_list = np.array(T_base_camera1).tolist()
+        T_matrix_json = json.dumps(T_matrix_list)
         with open(csv_path, 'a') as csv_file:
-            csv_file.write(f"{idx},{step_timestamp},{rounded_pose[0]},{rounded_pose[1]},{rounded_pose[2]},{rounded_pose[3]},{rounded_pose[4]},{rounded_pose[5]},{color_path},{depth_path},{ir1_off_path},{ir2_off_path},{ir1_on_path},{ir2_on_path}\n")
+            csv_file.write(f'{idx},{step_timestamp},{rounded_pose[0]},{rounded_pose[1]},{rounded_pose[2]},{rounded_pose[3]},{rounded_pose[4]},{rounded_pose[5]},{color_path},{depth_path},{ir1_off_path},{ir2_off_path},{ir1_on_path},{ir2_on_path},"{T_matrix_json}"\n')
 
         print(f"  已保存第 {idx} 步图像")
 

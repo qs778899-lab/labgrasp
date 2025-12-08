@@ -29,7 +29,7 @@ from spatialmath import SE3, SO3
 from grasp_utils import normalize_angle, extract_euler_zyx, print_pose_info
 ###from calculate_grasp_pose_from_object_pose import execute_grasp_from_object_pose, detect_dent_orientation
 from camera_reader import CameraReader
-from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface
+from level2_action import detect_object_pose_using_foundation_pose, choose_grasp_pose, execute_grasp_action, detect_object_orientation, adjust_object_orientation, detect_contact_with_surface, get_T_base_cam_array
 from env import create_env
 import rospy
 from std_msgs.msg import Float64MultiArray
@@ -142,17 +142,9 @@ if __name__ == "__main__":
     gripper_close_pos = grasp_params["gripper_close_pos"]
     
     # 计算抓取姿态
-    pre_grasp_pose, grasp_pose, T_base_ee_ideal = choose_grasp_pose(
+    T_base_camera1 = get_T_base_cam_array(
         center_pose_array=center_pose_array,
         dobot=dobot,
-        T_ee_cam=T_ee_cam,
-        z_xoy_angle=z_xoy_angle,
-        vertical_euler=vertical_euler,
-        grasp_tilt_angle=grasp_tilt_angle,
-        angle_threshold=angle_threshold,
-        T_tcp_ee_z=-0.16,
-        T_safe_distance=T_safe_distance,
-        z_safe_distance=z_safe_distance,
-        verbose=True
+        T_ee_cam=T_ee_cam
     )
     

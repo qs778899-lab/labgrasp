@@ -843,3 +843,60 @@ def execute_grasp_action(
 
 #     action.move(grasp_pose)
 #     pass
+
+
+
+def get_T_base_cam_array(
+    center_pose_array,
+    dobot,
+    T_ee_cam
+):
+    """
+    从物体位姿计算抓取姿态（不执行移动，只计算）
+    
+    Args:
+        center_pose_array: 物体中心在相机坐标系中的位姿 (4x4 numpy array)
+        dobot: Dobot机械臂对象
+        T_ee_cam: 相机到末端执行器的变换矩阵 (SE3对象)
+        z_xoy_angle: 物体绕z轴旋转角度，用于调整抓取接近方向 (度)
+        vertical_euler: 垂直向下抓取的grasp姿态的的欧拉角 [rx, ry, rz] (度)
+        grasp_tilt_angle: 倾斜抓取角度 (度)
+        angle_threshold: z轴对齐的角度阈值 (度)
+        T_tcp_ee_z: TCP到末端执行器的z轴偏移 (米)
+        T_safe_distance: 安全距离，防止抓取时与物体碰撞 (米)
+        z_safe_distance: 最终移动时z方向的额外安全距离 (毫米)
+        verbose: 是否打印详细信息
+    
+    Returns:
+        grasp_pose: 抓取位置和姿态 [x, y, z, rx, ry, rz] (毫米和度)
+        T_base_ee_ideal: 计算得到的理想末端执行器位姿 (SE3对象)
+    """
+    from scipy.spatial.transform import Rotation as R
+    from grasp_utils import normalize_angle
+    
+    if vertical_euler is None:
+        vertical_euler = [-180, 0, -90]
+    
+    if verbose:
+        print("开始计算抓取姿态...")
+    
+    # ------计算在机器人基系中的object pose------
+    T_cam_object = SE3(center_pose_array, check=False)
+    pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
+    x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
+    
+    # 从当前机器人位姿构造变换矩阵 T_base_ee
+    T_base_ee = SE3.Rt(
+        SO3.RPY([rx_e, ry_e, rz_e], unit='deg', order='zyx'),
+        np.array([x_e, y_e, z_e]) / 1000.0,  # 毫米转米
+        check=False
+    )
+    
+    # 坐标变换链: T_base_cam = T_base_ee * T_ee_cam
+    T_base_cam = T_base_ee * T_ee_cam
+    T_base_obj = T_base_cam * T_cam_object
+
+    T_base_cam_array = np.array(T_base_cam, dtype=float)
+    print("T_base_cam_array: ", T_base_cam_array)
+   
+    return T_base_cam_array
