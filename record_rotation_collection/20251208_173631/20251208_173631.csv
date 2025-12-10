@@ -1,0 +1,1 @@
+step,timestamp,x,y,z,rx,ry,rz,color_path,depth_path,ir1_off_path,ir2_off_path,ir1_on_path,ir2_on_path,T_base_camera

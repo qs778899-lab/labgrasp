@@ -193,15 +193,6 @@ if __name__ == "__main__":
                             [1,1,1,1], 
                             [1,1,1,1]
                             ]
-    # 从 GraspLibrary 获取抓取参数
-    z_xoy_angle = grasp_params["z_xoy_angle"]
-    vertical_euler = grasp_params["vertical_euler"]
-    grasp_tilt_angle = grasp_params["grasp_tilt_angle"]
-    angle_threshold = grasp_params["angle_threshold"]
-    T_safe_distance = grasp_params["T_safe_distance"]
-    z_safe_distance = grasp_params["z_safe_distance"]
-    gripper_close_pos = grasp_params["gripper_close_pos"]
-    
     
 
 
@@ -230,7 +221,7 @@ if __name__ == "__main__":
             continue
 
         color_img = frames_off['color']
-        depth_img = frames_on['depth']/1000   #! 单位换算
+        depth_img = frames_off['depth']/1000   #! 单位换算
         ir1_off_img = frames_off['ir1']
         ir2_off_img = frames_off['ir2']
 
@@ -243,7 +234,7 @@ if __name__ == "__main__":
             print(f"  警告: 第 {idx} 步 emitter ON 帧获取失败")
             continue
 
-        
+        depth_on_img = frames_off['depth']/1000   #! 单位换算
         ir1_on_img = frames_on['ir1']
         ir2_on_img = frames_on['ir2']
 
@@ -261,6 +252,7 @@ if __name__ == "__main__":
         # --- 保存图像 ---
         color_path = os.path.join(collection_dir, f"{prefix}_color.jpg")
         depth_path = os.path.join(collection_dir, f"{prefix}_depth.png")
+        depth_on_path = os.path.join(collection_dir, f"{prefix}_depth_on.png")
         ir1_off_path = os.path.join(collection_dir, f"{prefix}_ir1_off.png")
         ir2_off_path = os.path.join(collection_dir, f"{prefix}_ir2_off.png")
         ir1_on_path = os.path.join(collection_dir, f"{prefix}_ir1_on.png")
@@ -268,6 +260,7 @@ if __name__ == "__main__":
 
         cv2.imwrite(color_path, color_img)
         cv2.imwrite(depth_path, depth_img)
+        cv2.imwrite(depth_on_path, depth_on_img)
         cv2.imwrite(ir1_off_path, ir1_off_img)
         cv2.imwrite(ir2_off_path, ir2_off_img)
         cv2.imwrite(ir1_on_path, ir1_on_img)
