@@ -847,7 +847,6 @@ def execute_grasp_action(
 
 
 def get_T_base_cam_array(
-    center_pose_array,
     dobot,
     T_ee_cam
 ):
@@ -856,7 +855,7 @@ def get_T_base_cam_array(
     from grasp_utils import normalize_angle
     
     # ------计算在机器人基系中的object pose------
-    T_cam_object = SE3(center_pose_array, check=False)
+
     pose_now = dobot.get_pose()  # 获取当前末端执行器位姿
     x_e, y_e, z_e, rx_e, ry_e, rz_e = pose_now
     

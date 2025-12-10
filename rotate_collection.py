@@ -205,8 +205,13 @@ if __name__ == "__main__":
         dobot.move_to_pose(rounded_pose[0], rounded_pose[1], rounded_pose[2], rounded_pose[3], rounded_pose[4], rounded_pose[5], speed=15, acceleration=3)  
         
         # 等待机械臂稳定
-        wait = rospy.Rate(1.0 / 5)
-        wait.sleep()
+        # wait = rospy.Rate(1.0 / 5)
+        # wait.sleep()
+        time.sleep(5)
+        if dobot.check_pose(rounded_pose[0], rounded_pose[1], rounded_pose[2]):
+            print(f"  已到达第 {idx} 步目标位姿")
+        else:
+            print(f"  警告: 第 {idx} 步目标位姿未到达")
 
         # --- 采集图像 ---
         step_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -227,7 +232,7 @@ if __name__ == "__main__":
 
         # 2) emitter ON: 采集 depth, ir1_on, ir2_on
         cam_sensor.set_option(rs.option.emitter_enabled, 1)
-        wait_sensor = rospy.Rate(1.0 / 0.5)
+        wait_sensor = rospy.Rate(1.0 / 0.4)
         wait_sensor.sleep()
         frames_on = camera.get_frames()
         if frames_on is None:
@@ -240,11 +245,10 @@ if __name__ == "__main__":
 
         # 恢复 emitter OFF（根据原始配置）
         cam_sensor.set_option(rs.option.emitter_enabled, 0)
-        wait_sensor = rospy.Rate(1.0 / 0.1)
+        wait_sensor = rospy.Rate(1.0 / 0.3)
         wait_sensor.sleep()
 
         T_base_camera1 = get_T_base_cam_array(
-        center_pose_array=center_pose_array,
         dobot=dobot,
         T_ee_cam=T_ee_cam
         )
