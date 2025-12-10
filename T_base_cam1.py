@@ -143,7 +143,6 @@ if __name__ == "__main__":
     
     # 计算抓取姿态
     T_base_camera1 = get_T_base_cam_array(
-        center_pose_array=center_pose_array,
         dobot=dobot,
         T_ee_cam=T_ee_cam
     )
