@@ -132,30 +132,9 @@ if __name__ == "__main__":
     camera_main = env.camera1_main
     camera = camera_main["cam"]  # 为清理函数设置全局变量
     T_ee_cam = camera_main["T_ee_cam"]
-    
-    # 从 GraspLibrary.json 加载抓取参数
-    target_object = "stirring rod"  # 可以修改为: "red cylinder", "red stirring rod", "stirring rod"
-    with open("GraspLibrary.json", 'r') as f:
-        grasp_library = json.load(f)
-    if target_object not in grasp_library:
-        raise ValueError(f"目标物体 '{target_object}' 不在 GraspLibrary.json 中")
-    grasp_params = grasp_library[target_object]
-    print(f"\n加载目标物体: {target_object}")
-    print(f"抓取参数: {grasp_params}\n")
-    
-    # mesh_file = "mesh/cube.obj"
-    # mesh_file = "mesh/thin_cube.obj"
-    mesh_file = "mesh/cube_1_20.obj"
-    key = cv2.waitKey(1)
  
-    # 从 GraspLibrary 获取抓取参数
-    z_xoy_angle = grasp_params["z_xoy_angle"]
-    vertical_euler = grasp_params["vertical_euler"]
-    grasp_tilt_angle = grasp_params["grasp_tilt_angle"]
-    angle_threshold = grasp_params["angle_threshold"]
-    T_safe_distance = grasp_params["T_safe_distance"]
-    z_safe_distance = grasp_params["z_safe_distance"]
-    gripper_close_pos = grasp_params["gripper_close_pos"]
+    key = cv2.waitKey(1)
+
 
     # 手动标定的基准姿态（请根据实测顺序排列，可替换为 6 个或更多点）
     anchor_poses = [
@@ -187,12 +166,6 @@ if __name__ == "__main__":
 
     # 获取相机传感器以控制 emitter
     cam_sensor = camera.profile.get_device().query_sensors()[0]
-
-    center_pose_array = [ [1,1,1,1], 
-                            [1,1,1,1], 
-                            [1,1,1,1], 
-                            [1,1,1,1]
-                            ]
     
 
 
