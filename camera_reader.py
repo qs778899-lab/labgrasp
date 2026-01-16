@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
-
+import rospy
 
 ###适用于视触觉相机
 
@@ -330,10 +330,38 @@ class CameraReader:
             return False
         
         return result['change_percentage'] >= change_threshold
-    
+
+    def save_frame(self, frame):
+        """
+        按下s开始保存帧图像
+        q退出保存
+        控制帧率：rate = rospy.Rate(10)
+        rate.sleep()
+        """
+        save_counter = 0
+        rate = rospy.Rate(10)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        while True:
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('s'):
+                cv2.imwrite(f"test_images/{timestamp}/frame_{save_counter:03d}.jpg", frame)
+                save_counter += 1
+            elif key == ord('q'):
+                break
+            rate.sleep()
+
+
     # def release(self):
     #     """释放相机资源"""
     #     if self.cap is not None:
     #         self.cap.release()
     #     cv2.destroyAllWindows()
     #     print("相机资源已释放")
+
+
+if __name__ == "__main__":
+    camera = CameraReader(camera_id=10)
+    frame = camera.get_current_frame()
+    cv2.imshow("Camera Preview", frame)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()

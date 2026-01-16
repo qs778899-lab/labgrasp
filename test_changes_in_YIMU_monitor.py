@@ -5,7 +5,7 @@ from camera_reader import CameraReader
 
 
 def main():
-    camera = CameraReader(camera_id=17) #! 注意id有时会变化
+    camera = CameraReader(camera_id=11) #! 注意id有时会变化
 
     pixel_threshold = 2
     min_area = 2

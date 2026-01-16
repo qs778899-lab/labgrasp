@@ -43,7 +43,7 @@ class create_env:
             self.robot1 = None
             self.gripper = None
         
-        self.camera1_main = self.init_camera(camera_id)
+        # self.camera1_main = self.init_camera(camera_id)
 
 
 
