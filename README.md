@@ -35,7 +35,12 @@
     rotate_collection.py: 在固定高度上机械臂末端画一个圆收集不同视角的hand camera的照片
 
 
-## 未封装文件 labgrasp(TODO):
+## 未封装文件 \labgrasp(TODO):
+
+    glassbar_grasp_main_force.py: 抓取玻璃棒调整姿态至垂直向下，再向下移动触碰桌面; 利用力控感知接触力变化
+
+    glassbar_plug_main.py: 通过在xy平面进行螺旋线搜索和力控感知垂直接触完成peg in hole.
+
 
 
 
